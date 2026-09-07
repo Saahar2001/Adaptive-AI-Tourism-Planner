@@ -1,0 +1,34 @@
+{
+  "problem": "monthly city-total POS demand forecasting",
+  "incomplete_month_policy": "months with fewer than 4 weekly observations are excluded",
+  "kapsarc_granularity_note": "KAPSARC provides city totals and national sector totals as separate cuts; the pipeline does not claim observed city×sector transactions.",
+  "selection_method": "3 rolling-origin validation folds; primary metric MAE",
+  "selected_model": "ExtraTrees(n=300,leaf=2,max_features=1.0)",
+  "validation": {
+    "selected_model_mean_mae": 374657.76532870386,
+    "selected_model_mean_mape": 0.10131631973224799,
+    "seasonal_naive_mean_mae": 545498.6333333333,
+    "mae_improvement_vs_baseline": 0.31318294412707565
+  },
+  "final_holdout": {
+    "train_start": "2021-05-01",
+    "train_end": "2024-06-01",
+    "test_start": "2024-07-01",
+    "test_end": "2025-06-01",
+    "rows_train": 380,
+    "rows_test": 120,
+    "model": {
+      "mae": 316147.92521527794,
+      "rmse": 791073.7386261891,
+      "r2": 0.9802585479311767,
+      "mape": 0.06875832995020298
+    },
+    "seasonal_naive_baseline": {
+      "mae": 448356.7083333333,
+      "rmse": 926580.0570766538,
+      "r2": 0.972916109077561,
+      "mape": 0.10172543435693425
+    },
+    "mae_improvement_vs_baseline": 0.2948741050613745
+  }
+}

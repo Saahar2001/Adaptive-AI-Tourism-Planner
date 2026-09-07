@@ -1,0 +1,64 @@
+{
+  "model_version": "20260907T143412Z",
+  "built_at_utc": "2026-09-07T14:34:53.639383+00:00",
+  "kapsarc_source": "Point of Sale Transactions by Sector and City",
+  "kapsarc_granularity": {
+    "city_signal": "City != Total with Sectors == Total",
+    "sector_signal": "City == Total with tourism-relevant sector",
+    "observed_city_sector_cross": "not available in source"
+  },
+  "forecast_model": {
+    "artifact": "city_demand_model.joblib",
+    "selected_model": "ExtraTrees(n=300,leaf=2,max_features=1.0)",
+    "features": [
+      "group_key",
+      "year",
+      "month_num",
+      "month_sin",
+      "month_cos",
+      "trend_months",
+      "lag_1",
+      "lag_2",
+      "lag_3",
+      "lag_6",
+      "lag_12",
+      "rolling_3",
+      "rolling_6",
+      "rolling_12",
+      "rolling_std_3",
+      "rolling_std_6",
+      "rolling_std_12"
+    ],
+    "forecast_horizon": "one month ahead from latest complete observed city history",
+    "deployment_refit": "all available model rows after holdout evaluation",
+    "metrics_file": "city_demand_metrics.json"
+  },
+  "recommendation_context": {
+    "city_context": "city_demand_context.csv",
+    "sector_context": "sector_demand_context.csv",
+    "seasonality_context": "datasaudi_seasonality_index.csv",
+    "regional_demand_formula": "0.4 * city_demand_score + 0.6 * sector_demand_score",
+    "rank_weights": {
+      "preference_match": 0.45,
+      "place_quality": 0.1,
+      "regional_demand": 0.15,
+      "seasonality": 0.1,
+      "distance_fit": 0.2
+    },
+    "budget_in_rank": false,
+    "accessibility_in_rank_without_confirmed_evidence": false
+  },
+  "cost_estimates_sar": {
+    "attraction": 50.0,
+    "restaurant": 80.0,
+    "cafe": 35.0
+  },
+  "limitations": [
+    "KAPSARC does not expose city-by-sector transactions in the source table; city and sector signals are combined as contextual features, not represented as observed city-sector spend.",
+    "Venue-level price is not provided by the current normalized Places API; itinerary costs are category-level estimates and must be labeled.",
+    "Confirmed accessibility is usually absent from the current normalized Places API; strict accessibility only accepts confirmed evidence.",
+    "Opening hours are sparse and unknown values are never treated as confirmed open.",
+    "Routing uses Haversine distance with a documented road-distance factor unless a routing service is added later.",
+    "Human-labeled recommendation relevance and user satisfaction require a real user study and are not fabricated."
+  ]
+}

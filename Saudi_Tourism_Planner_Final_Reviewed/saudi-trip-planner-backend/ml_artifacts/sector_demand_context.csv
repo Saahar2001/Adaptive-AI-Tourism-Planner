@@ -1,0 +1,4 @@
+Sectors,latest_month,latest_value,place_group,sector_demand_score,history_months
+Hotels,2025-06-01,1018728.0,accommodation,0.0,62
+Recreation and Culture,2025-06-01,1304420.0,attractions,0.0347284588787487,62
+Restaurants & Café,2025-06-01,9245180.0,food,1.0,62
