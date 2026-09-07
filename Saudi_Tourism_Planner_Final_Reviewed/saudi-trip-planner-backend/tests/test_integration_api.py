@@ -136,3 +136,84 @@ def test_predict_demand_response_is_self_describing():
         assert payload['forecast_horizon_months'] == 1
         assert payload['target'] == 'monthly city-total POS transaction value'
         assert payload['unit'] == 'thousand SAR'
+
+
+def test_plan_trip_all_supported_cities_return_valid_grounded_response(monkeypatch):
+    monkeypatch.setattr(main, "_wikipedia_photo", lambda name, city: "https://example.com/verified.jpg")
+    with TestClient(main.app) as client:
+        for city in eng.CITIES:
+            response = client.post(
+                "/plan-trip",
+                json={
+                    "city": city,
+                    "budget": 3000,
+                    "days": 2,
+                    "interests": ["Culture & Heritage", "Food"],
+                    "transport_mode": "driving",
+                    "require_accessibility": False,
+                    "trip_month": 9,
+                },
+            )
+            assert response.status_code == 200, f"Failed for city {city}: {response.text}"
+            payload = response.json()
+            assert "places" in payload
+            assert "itinerary" in payload
+            assert len(payload["places"]) > 0, f"City {city} returned 0 places"
+            for p in payload["places"]:
+                assert p["name"]
+                assert p["latitude"] is not None
+                assert p["longitude"] is not None
+                assert "image_url" in p
+
+
+def test_plan_trip_makkah_five_day_presentation_case(monkeypatch):
+    monkeypatch.setattr(main, "_wikipedia_photo", lambda name, city: "https://example.com/verified.jpg")
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/plan-trip",
+            json={
+                "city": "Makkah",
+                "budget": 10000,
+                "days": 5,
+                "interests": [
+                    "Adventure",
+                    "Culture & Heritage",
+                    "Food",
+                    "Nature",
+                    "Shopping",
+                    "Relaxation",
+                ],
+                "transport_mode": "driving",
+                "require_accessibility": False,
+                "trip_month": 9,
+            },
+        )
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert len(payload["places"]) >= 10
+        assert len(payload["itinerary"]) >= 10
+        days_in_itinerary = {stop["day"] for stop in payload["itinerary"]}
+        assert len(days_in_itinerary) == 5
+        assert all(isinstance(stop["place"], str) and len(stop["place"]) > 0 for stop in payload["itinerary"])
+
+
+def test_assistant_chat_endpoint_integration():
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/assistant/chat",
+            json={
+                "message": "What is the plan for my trip?",
+                "page": "/results",
+                "trip_context": {
+                    "city": "Makkah",
+                    "prefs": {"city": "Makkah", "budget": 5000, "days": 3},
+                    "itinerary": [
+                        {"day": 1, "place": "Masjid al-Haram", "visit_duration_hours": 2.0}
+                    ]
+                }
+            }
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert "response" in data
+        assert "Masjid al-Haram" in data["response"] or "Makkah" in data["response"]

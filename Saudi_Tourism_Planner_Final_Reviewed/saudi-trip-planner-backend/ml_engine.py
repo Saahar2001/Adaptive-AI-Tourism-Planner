@@ -87,7 +87,7 @@ def cache_data(func=None, *, ttl=None, show_spinner=False):
 
 ARTIFACT_ROOT = Path(__file__).resolve().parent / "ml_artifacts"
 PLACES_API_BASE = os.environ.get("PLACES_API_BASE", "https://placesproject.onrender.com").rstrip("/")
-HTTP_TIMEOUT_SECONDS = float(os.environ.get("HTTP_TIMEOUT_SECONDS", "12"))
+HTTP_TIMEOUT_SECONDS = float(os.environ.get("HTTP_TIMEOUT_SECONDS", "5.0"))
 CACHE_TTL_SECONDS = int(os.environ.get("CACHE_TTL_SECONDS", "900"))
 
 CITIES = {
@@ -101,7 +101,7 @@ CITIES = {
     "AlUla": "AlUla, Saudi Arabia",
 }
 
-LOCAL_DATA_CITIES = {"Riyadh", "Abha", "Dammam", "Tabuk"}
+LOCAL_DATA_CITIES = set(CITIES.keys())
 
 # Grounded ranking weights. Budget and accessibility are constraints/evidence gates,
 # not ranking signals when venue-level evidence is unavailable.
@@ -457,6 +457,7 @@ _INTEREST_ALIASES = {
     "heritage": "culture & heritage",
     "culture and heritage": "culture & heritage",
     "culture & heritage": "culture & heritage",
+    "culture heritage": "culture & heritage",
     "food": "food",
     "nature": "nature",
     "adventure": "adventure",
@@ -472,7 +473,10 @@ _INTEREST_ALIASES = {
 
 
 def _canonical_interest(value: str) -> str:
-    key = _normalize_text(value).replace(" and ", " & ")
+    cleaned = str(value).strip().lower().replace("&", "and")
+    key = _normalize_text(cleaned)
+    if "culture" in key or "heritage" in key:
+        return "culture & heritage"
     return _INTEREST_ALIASES.get(key, key)
 
 
@@ -643,16 +647,37 @@ def accessibility_status(row) -> str:
     return "unknown"
 
 
+_UPSTREAM_FAILURE_CACHE: dict = {}
+_HOST_FAILURE_TIMESTAMP: float = 0.0
+
 @cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
 def _fetch_places_from_upstream(city: str, category: str, limit: int) -> list:
-    """Calls the live Places API. Cached per (city, category, limit) for 15 min."""
-    response = requests.get(
-        f"{PLACES_API_BASE}/places",
-        params={"city": city, "category": category, "limit": limit},
-        timeout=HTTP_TIMEOUT_SECONDS,
-    )
-    response.raise_for_status()
-    payload = response.json()
+    """Calls the live Places API. Cached per (city, category, limit) for 15 min.
+    Implements a cooldown on upstream failure so cold-starts/unreachable
+    endpoints degrade instantly to verified snapshot fallbacks without stalling."""
+    global _HOST_FAILURE_TIMESTAMP
+    now = time.monotonic()
+    if _HOST_FAILURE_TIMESTAMP and (now - _HOST_FAILURE_TIMESTAMP < 60.0):
+        raise requests.RequestException("Upstream host in failure cooldown")
+
+    fail_key = (city, category)
+    last_fail = _UPSTREAM_FAILURE_CACHE.get(fail_key)
+    if last_fail and (now - last_fail < 60.0):
+        raise requests.RequestException(f"Upstream {city}/{category} in cooldown after recent error")
+
+    try:
+        response = requests.get(
+            f"{PLACES_API_BASE}/places",
+            params={"city": city, "category": category, "limit": limit},
+            timeout=HTTP_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        _HOST_FAILURE_TIMESTAMP = 0.0
+    except Exception as exc:
+        _UPSTREAM_FAILURE_CACHE[fail_key] = now
+        _HOST_FAILURE_TIMESTAMP = now
+        raise exc
 
     retrieved = pd.Timestamp.utcnow().isoformat()
     rows = []
@@ -986,7 +1011,10 @@ def recommend_places(city, interests, budget=None, features_df=None, top_n=10,
     if places.empty:
         return places
     places["category"] = places.get("categories", "")
-    places["address"] = ""
+    if "address" not in places.columns:
+        places["address"] = f"{city}, Saudi Arabia"
+    else:
+        places["address"] = places["address"].fillna(f"{city}, Saudi Arabia")
     places["preference_match"] = places.apply(
         lambda row: interest_match_score(row, interest_list), axis=1
     )
@@ -1420,7 +1448,20 @@ def process_assistant_message(message, state, recommendations=None, itinerary=No
 def generate_assistant_response(user_message, assistant_result, recommendations=None, itinerary=None):
     state = assistant_result["state"]
     intent = assistant_result["intent"]
-    context = build_grounded_context(recommendations=recommendations, itinerary=itinerary, city=state["city"])
+    context = build_grounded_context(recommendations=recommendations, itinerary=itinerary, city=state.get("city", "Saudi Arabia"))
+
+    if intent == "budget":
+        return (f"Your current trip budget is {float(state.get('budget') or 0):.0f} SAR. "
+                f"The itinerary will prioritize options that fit within this budget.")
+
+    if intent == "time":
+        return (f"You currently have {float(state.get('hours_per_day') or 8.0):.1f} hours available per day. "
+                f"The itinerary is generated using this time constraint.")
+
+    if intent == "preferences":
+        interests_str = ", ".join(state.get("interests", [])) if state.get("interests") else "General sightseeing"
+        return (f"Your current interests are: {interests_str}. "
+                f"Recommendations are ranked according to these preferences and verified tourism data.")
 
     if not context:
         return ("I could not find enough verified information in the current tourism data "

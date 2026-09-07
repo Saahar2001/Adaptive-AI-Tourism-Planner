@@ -4,12 +4,7 @@ import { TrendingPlacesView } from "../components/TrendingPlacesView";
 
 export default function Landing() {
   return (
-    <div className="min-h-screen bg-sand-100">
-      {/* Header */}
-      <header className="max-w-content mx-auto px-6 pt-8 flex items-center justify-between">
-        <span className="font-display text-lg text-ink-900">🇸🇦 Saudi Tourism Planner</span>
-      </header>
-
+    <div className="min-h-[calc(100vh-64px)] bg-sand-100">
       {/* Hero Section */}
       <main className="max-w-content mx-auto px-6 py-16 md:py-24 grid md:grid-cols-2 gap-12 items-center">
         <div>

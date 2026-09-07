@@ -28,6 +28,7 @@ export interface Place {
   address?: string;
   source?: string;
   source_retrieved_at_utc?: string;
+  image_url?: string | null;
 }
 
 export interface ItineraryStop {
@@ -46,6 +47,7 @@ export interface ItineraryStop {
   accessibility_status?: string;
   source?: string;
   source_retrieved_at_utc?: string;
+  image_url?: string | null;
 }
 
 export interface ItineraryDay {
@@ -67,4 +69,34 @@ export interface TripResult {
   itinerary: ItineraryDay[];
   warnings?: string[];
   metadata?: TripMetadata;
+}
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  preferredInterests: string[];
+  preferredTransport: TransportMode;
+  requireAccessibility: boolean;
+  createdAt: string;
+}
+
+export interface SavedTrip {
+  id: string;
+  userId: string;
+  createdAt: string;
+  prefs: TripPreferences;
+  result: TripResult;
+}
+
+export interface FavoritePlace {
+  id: string;
+  userId: string;
+  name: string;
+  city: string;
+  category: PlaceCategory;
+  estimated_cost?: number;
+  address?: string;
+  image_url?: string | null;
+  savedAt: string;
 }

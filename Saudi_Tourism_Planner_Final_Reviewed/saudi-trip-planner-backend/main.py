@@ -88,40 +88,73 @@ def _google_places_photo(place_name: str, city: str):
 
 
 def _wikipedia_photo(place_name: str, city: str):
-    """Free, keyless lookup of a specific place's thumbnail via the Wikipedia
-    API. Only returns a photo when Wikipedia has a matching page -- never a
-    generic/city-level substitute, since that would attach the wrong photo
-    to the wrong place."""
-    query = f"{place_name} {city}"
+    """Safe, keyless lookup of a specific place's thumbnail via Wikipedia Search API.
+    Searches by place name + city, validates reasonable name similarity,
+    and returns a verified photo thumbnail. Never returns a generic stock photo."""
+    if not place_name or place_name in {"Unknown Place", "Unnamed place"} or len(place_name) < 3:
+        return None
+
+    has_arabic = bool(re.search(r"[\u0600-\u06ff]", place_name))
+    domain = "ar.wikipedia.org" if has_arabic else "en.wikipedia.org"
+    generic_rejects = {"saudi arabia", city.lower(), "tourism in", "list of", "transport in", "geography of"}
+
     try:
-        url = (
-            "https://en.wikipedia.org/w/api.php?action=query&titles="
-            f"{urllib.parse.quote(query)}&prop=pageimages&format=json&pithumbsize=600"
-        )
-        res = requests.get(url, headers={"User-Agent": "SaudiTourismApp/1.0"}, timeout=5).json()
+        url = f"https://{domain}/w/api.php"
+        params = {
+            "action": "query",
+            "generator": "search",
+            "gsrsearch": f"{place_name} {city}",
+            "gsrlimit": 3,
+            "prop": "pageimages",
+            "pithumbsize": 600,
+            "format": "json",
+        }
+        res = requests.get(
+            url,
+            params=params,
+            headers={"User-Agent": "SaudiTourismApp/1.0"},
+            timeout=1.5,
+        ).json()
+
         pages = res.get("query", {}).get("pages", {})
-        for page_id, page in pages.items():
-            if page_id == "-1":  # Wikipedia's "no matching page" marker
+        for page in pages.values():
+            title = page.get("title", "")
+            thumbnail = page.get("thumbnail", {}).get("source")
+            if not thumbnail or not title:
                 continue
-            if "thumbnail" in page:
-                return page["thumbnail"]["source"]
-    except Exception as e:
-        print(f"[photo] Wikipedia lookup failed for '{place_name}': {e}")
+
+            t_lower = title.lower()
+            if any(t_lower == g or t_lower.startswith(g) for g in generic_rejects):
+                continue
+
+            # Verify name similarity before accepting result
+            p_norm = re.sub(r"[^\w\s]", "", place_name.lower())
+            t_norm = re.sub(r"[^\w\s]", "", t_lower)
+            ratio = difflib.SequenceMatcher(None, p_norm, t_norm).ratio()
+            tokens_p = set(p_norm.split())
+            tokens_t = set(t_norm.split())
+            overlap = len(tokens_p & tokens_t) / max(1, len(tokens_p))
+
+            if ratio >= 0.38 or overlap >= 0.5:
+                return thumbnail
+    except Exception:
+        pass
+
     return None
 
 
-def get_exact_place_photo(place_name: str, city: str):
-    """Single source of truth for place photos (the two duplicate
-    definitions that used to exist here -- one Wikipedia-based, one
-    Google-based, silently shadowing each other -- have been merged).
-
-    Tries a real photo of this exact place (Google Places if a key is
-    configured, then the free Wikipedia lookup). If neither finds a
-    specific match, returns None rather than a generic stock photo --
-    a wrong/repeated photo is worse than no photo for a "trending places"
-    list, since it misrepresents the place.
+def get_exact_place_photo(place_name: str, city: str, category: str = ""):
+    """Multi-source safe image resolver:
+    1. Google Places photo ONLY if GOOGLE_PLACES_API_KEY is configured.
+    2. Wikipedia / Wikimedia search with title similarity verification.
+    3. Safe fallback returning None (never an unrelated stock photo).
+    Caches resolved URLs in memory.
     """
-    if not place_name or place_name == "Unknown Place":
+    if not place_name or place_name in {"Unknown Place", "Unnamed place"}:
+        return None
+
+    # Local restaurants and cafes do not have Wikipedia pages; skip to avoid unnecessary external HTTP calls
+    if category and str(category).lower() in {"restaurant", "cafe", "catering"}:
         return None
 
     cache_key = (place_name, city)
@@ -161,9 +194,16 @@ def _clean(value):
     return value
 
 
-def _place_to_json(row) -> dict:
+def _place_to_json(row, city: str = "") -> dict:
+    place_name = row.get("name")
+    resolved_city = row.get("city") or city
+    category = str(row.get("place_type") or row.get("category") or "")
+    image_url = row.get("image_url")
+    if not isinstance(image_url, str) or not image_url.strip():
+        image_url = get_exact_place_photo(str(place_name or ""), str(resolved_city or ""), category=category)
+
     return {
-        "name": row.get("name"),
+        "name": place_name,
         "category": row.get("place_type"),
         "latitude": _clean(row.get("latitude")),
         "longitude": _clean(row.get("longitude")),
@@ -178,13 +218,21 @@ def _place_to_json(row) -> dict:
         "address": row.get("address"),
         "source": row.get("source", row.get("_source")),
         "source_retrieved_at_utc": row.get("source_retrieved_at_utc"),
+        "image_url": image_url,
     }
 
 
-def _stop_to_json(row) -> dict:
+def _stop_to_json(row, city: str = "") -> dict:
+    place_name = row.get("place") or row.get("name")
+    resolved_city = row.get("city") or city
+    category = str(row.get("place_type") or row.get("category") or "")
+    image_url = row.get("image_url")
+    if not isinstance(image_url, str) or not image_url.strip():
+        image_url = get_exact_place_photo(str(place_name or ""), str(resolved_city or ""), category=category)
+
     return {
         "day": int(row.get("day")),
-        "place": row.get("place"),
+        "place": place_name,
         "category": row.get("place_type"),
         "latitude": _clean(row.get("latitude")),
         "longitude": _clean(row.get("longitude")),
@@ -199,6 +247,7 @@ def _stop_to_json(row) -> dict:
         "accessibility_status": row.get("accessibility_status", "unknown"),
         "source": row.get("source"),
         "source_retrieved_at_utc": row.get("source_retrieved_at_utc"),
+        "image_url": image_url,
     }
 
 
@@ -266,8 +315,8 @@ def plan_trip(req: PlanTripRequest):
     artifacts = eng._load_ml_artifacts()
     metadata = artifacts.get("metadata", {}) if artifacts else {}
     return {
-        "places": [_place_to_json(r) for _, r in recommendations.iterrows()],
-        "itinerary": [_stop_to_json(r) for _, r in itinerary.iterrows()] if itinerary is not None and not itinerary.empty else [],
+        "places": [_place_to_json(r, city=req.city) for _, r in recommendations.iterrows()],
+        "itinerary": [_stop_to_json(r, city=req.city) for _, r in itinerary.iterrows()] if itinerary is not None and not itinerary.empty else [],
         "warnings": warnings,
         "metadata": {
             "trip_month": trip_month,
@@ -508,5 +557,106 @@ def model_info():
         },
         "kapsarc_granularity": metadata.get("kapsarc_granularity"),
         "limitations": metadata.get("limitations", []),
+    }
+
+
+class AssistantChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+    history: list[dict] = Field(default_factory=list)
+    page: str = Field(default="/")
+    trip_context: Optional[dict] = None
+
+
+@app.post("/assistant/chat")
+def assistant_chat(req: AssistantChatRequest):
+    user_msg = req.message.strip()
+    trip_ctx = req.trip_context or {}
+    history = req.history or []
+    current_page = req.page or "/"
+
+    prefs = trip_ctx.get("prefs") if isinstance(trip_ctx.get("prefs"), dict) else trip_ctx
+    city = str(prefs.get("city") or trip_ctx.get("city") or "Saudi Arabia")
+    budget = float(prefs.get("budget") or 1000.0)
+    days = int(prefs.get("days") or 3)
+    interests = prefs.get("interests") or []
+    hours_per_day = float(prefs.get("hours_per_day") or 8.0)
+
+    state = {
+        "city": city,
+        "budget": budget,
+        "days": days,
+        "interests": interests,
+        "hours_per_day": hours_per_day,
+        "page": current_page,
+    }
+
+    # Extract places and itinerary from trip_context
+    raw_places = trip_ctx.get("places") or []
+    raw_itinerary = trip_ctx.get("itinerary") or []
+
+    # Flatten itinerary stops if grouped by day
+    flat_stops = []
+    if isinstance(raw_itinerary, list):
+        for item in raw_itinerary:
+            if isinstance(item, dict) and "stops" in item and isinstance(item["stops"], list):
+                for s in item["stops"]:
+                    s_copy = dict(s)
+                    s_copy.setdefault("day", item.get("day", 1))
+                    flat_stops.append(s_copy)
+            elif isinstance(item, dict):
+                flat_stops.append(item)
+
+    recs_df = pd.DataFrame(raw_places) if raw_places else None
+    itin_df = pd.DataFrame(flat_stops) if flat_stops else None
+
+    # Detect intent
+    intent = eng.detect_intent(user_msg)
+    grounded_ctx = eng.build_grounded_context(recs_df, itin_df, city)
+
+    # 1. Check if LLM provider is configured (Groq or Anthropic)
+    if eng.llm_configured():
+        try:
+            llm_response, err = eng.generate_llm_response(
+                user_message=user_msg,
+                context=grounded_ctx if grounded_ctx else {"note": "No active trip generated yet."},
+                state=state,
+                chat_history=history[-6:],
+            )
+            if llm_response:
+                return {
+                    "response": llm_response,
+                    "source": "grounded_llm",
+                    "model": eng.llm_provider_name(),
+                    "intent": intent,
+                }
+        except Exception as e:
+            print(f"[assistant] LLM chat failed: {e}")
+
+    # 2. Rule-based grounded fallback (always works with zero API keys)
+    asst_result = eng.process_assistant_message(
+        user_msg, state, recommendations=recs_df, itinerary=itin_df
+    )
+    rule_response = eng.generate_assistant_response(
+        user_msg, asst_result, recommendations=recs_df, itinerary=itin_df
+    )
+
+    # General Saudi tourism guidance if asked general travel questions
+    general_knowledge_answers = {
+        "visa": "Visitors can enter Saudi Arabia using an eVisa or visa-on-arrival (for 60+ eligible countries including GCC, US, UK, EU/Schengen) via visitsaudi.com or the official visa portal.",
+        "currency": "The official currency is the Saudi Riyal (SAR). Payment via mada, Apple Pay, Visa, and Mastercard is accepted almost everywhere.",
+        "dress": "Modest dressing is customary in Saudi Arabia. Covering shoulders and knees in public spaces is recommended. In Makkah and Madinah, traditional religious dress is customary for pilgrims.",
+        "transport": "Careem, Uber, and taxis are widely available across major Saudi cities. The Haramain High-Speed Railway connects Makkah, Jeddah, KAEC, and Madinah in comfort.",
+        "weather": "October to March provides mild, pleasant weather across Riyadh, Jeddah, AlUla, and Dammam. Abha in Asir offers cool mountain weather year-round.",
+    }
+    for key, answer in general_knowledge_answers.items():
+        if key in user_msg.lower():
+            rule_response = f"[General Saudi Tourism Guide]\n{answer}\n\n(Note: This is general tourism guidance; your active trip plan data remains preserved.)"
+            break
+
+    return {
+        "response": rule_response,
+        "source": "rule_based_grounded",
+        "model": "rule_based",
+        "intent": intent,
     }
 

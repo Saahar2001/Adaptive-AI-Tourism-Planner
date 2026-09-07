@@ -1,4 +1,4 @@
-import type { TripPreferences, TripResult, Place, ItineraryDay, PlaceCategory } from "./types";
+import type { TripPreferences, TripResult, Place, ItineraryDay, ItineraryStop, PlaceCategory } from "./types";
 
 // Point this at the FastAPI backend. Set VITE_API_BASE in a .env file
 // (see .env.example). The localhost fallback is intentionally development-only.
@@ -33,10 +33,11 @@ function normalizePlace(raw: any): Place {
     address: raw.address,
     source: raw.source,
     source_retrieved_at_utc: raw.source_retrieved_at_utc,
+    image_url: typeof raw.image_url === "string" && raw.image_url.trim() ? raw.image_url : null,
   };
 }
 
-function normalizeStop(raw: any) {
+function normalizeStop(raw: any): ItineraryStop {
   return {
     place: raw.place ?? raw.name ?? "Unnamed place",
     category: normalizeCategory(raw.category ?? raw.place_type),
@@ -53,6 +54,7 @@ function normalizeStop(raw: any) {
     accessibility_status: raw.accessibility_status,
     source: raw.source,
     source_retrieved_at_utc: raw.source_retrieved_at_utc,
+    image_url: typeof raw.image_url === "string" && raw.image_url.trim() ? raw.image_url : null,
   };
 }
 
@@ -146,4 +148,57 @@ export async function generateTrip(prefs: TripPreferences): Promise<TripResult> 
   } finally {
     window.clearTimeout(timeoutId);
   }
+}
+
+export interface AssistantChatResponse {
+  response: string;
+  source: string;
+  model: string;
+  intent?: string;
+}
+
+export async function sendAssistantMessage(
+  message: string,
+  history: { role: string; content: string }[],
+  page: string,
+  tripContext?: any
+): Promise<AssistantChatResponse> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 20_000);
+
+  try {
+    const res = await fetch(`${API_BASE}/assistant/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        message,
+        history,
+        page,
+        trip_context: tripContext || {},
+      }),
+    });
+
+    if (!res.ok) {
+      throw new ApiError(await errorMessage(res), res.status);
+    }
+
+    return await res.json();
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError("The assistant took too long to reply. Please try again.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+export async function getTrendingPlaces(): Promise<any[]> {
+  const res = await fetch(`${API_BASE}/api/dashboard/trending-places`);
+  if (!res.ok) {
+    throw new ApiError(`Failed to load trending destinations (${res.status})`, res.status);
+  }
+  const data = await res.json();
+  return Array.isArray(data.trending_places) ? data.trending_places : [];
 }

@@ -17,16 +17,27 @@ const TRANSPORT_OPTIONS: { value: TransportMode; label: string }[] = [
   { value: "driving", label: "🚗 Driving / taxi" },
 ];
 
+import { AuthService } from "../lib/auth";
+import { TripStorageService } from "../lib/trips";
+
 export default function Plan() {
   const navigate = useNavigate();
   const { prefs, setPrefs, setResult } = useTrip();
 
+  const user = AuthService.getCurrentUser();
+
   const [city, setCity] = useState(prefs?.city ?? CITIES[0]);
   const [budget, setBudget] = useState(prefs?.budget ?? 1000);
   const [days, setDays] = useState(prefs?.days ?? 3);
-  const [interests, setInterests] = useState<string[]>(prefs?.interests ?? []);
-  const [transport, setTransport] = useState<TransportMode>(prefs?.transport ?? "driving");
-  const [requireAccessibility, setRequireAccessibility] = useState(prefs?.requireAccessibility ?? false);
+  const [interests, setInterests] = useState<string[]>(
+    prefs?.interests ?? user?.preferredInterests ?? ["Culture & Heritage", "Food"]
+  );
+  const [transport, setTransport] = useState<TransportMode>(
+    prefs?.transport ?? user?.preferredTransport ?? "driving"
+  );
+  const [requireAccessibility, setRequireAccessibility] = useState(
+    prefs?.requireAccessibility ?? user?.requireAccessibility ?? false
+  );
   const [tripMonth, setTripMonth] = useState(prefs?.tripMonth ?? new Date().getMonth() + 1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +62,7 @@ export default function Plan() {
     try {
       const result = await generateTrip(newPrefs);
       setResult(result);
+      TripStorageService.saveTrip(newPrefs, result);
       navigate("/results");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Couldn't reach the trip planner backend. Is it running?");
@@ -61,11 +73,7 @@ export default function Plan() {
 
   return (
     <div className="min-h-screen bg-sand-100">
-      <header className="max-w-content mx-auto px-6 pt-8">
-        <span className="font-display text-lg text-ink-900">🇸🇦 Saudi Tourism Planner</span>
-      </header>
-
-      <main className="max-w-content mx-auto px-6 py-12 md:py-16 grid md:grid-cols-[1fr_360px] gap-10">
+      <main className="max-w-content mx-auto px-6 py-10 md:py-12 grid md:grid-cols-[1fr_360px] gap-10">
         <div>
           <h1 className="font-display text-3xl text-ink-900 mb-8">Trip preferences</h1>
 
