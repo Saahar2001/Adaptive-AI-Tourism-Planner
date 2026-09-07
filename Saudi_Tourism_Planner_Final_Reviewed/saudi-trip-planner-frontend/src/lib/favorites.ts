@@ -33,7 +33,18 @@ export const FavoritesService = {
     );
   },
 
-  toggleFavorite(place: Place | { name: string; city?: string; category?: PlaceCategory; estimated_cost?: number; address?: string; image_url?: string | null }): boolean {
+  toggleFavorite(place: Place | {
+    id?: string;
+    name: string;
+    city?: string;
+    category?: PlaceCategory | string;
+    estimated_cost?: number;
+    address?: string;
+    image_url?: string | null;
+    latitude?: number;
+    longitude?: number;
+    source?: string;
+  }): boolean {
     const user = AuthService.getCurrentUser();
     const userId = user?.id || "guest";
     const all = this.getAllFavorites();
@@ -49,14 +60,17 @@ export const FavoritesService = {
       return false; // Removed
     } else {
       const newFav: FavoritePlace = {
-        id: `fav_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        id: (place as any).id || `fav_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         userId,
         name: place.name,
         city: (place as any).city || "Saudi Arabia",
-        category: (place.category as PlaceCategory) || "attractions",
+        category: ((place.category as PlaceCategory) || "attractions"),
         estimated_cost: place.estimated_cost,
         address: place.address,
         image_url: place.image_url ?? null,
+        latitude: place.latitude,
+        longitude: place.longitude,
+        source: place.source,
         savedAt: new Date().toISOString(),
       };
       all.unshift(newFav);

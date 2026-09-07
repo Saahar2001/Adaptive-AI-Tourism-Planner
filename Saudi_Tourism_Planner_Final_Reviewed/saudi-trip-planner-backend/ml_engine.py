@@ -314,7 +314,9 @@ def _build_grounding_system_prompt(context, state):
         "Saudi Arabia, and do not invent places, prices, hours, or facts that "
         "are not in VERIFIED_CONTEXT. If the user asks something the context "
         "doesn't cover, say plainly that you don't have that information yet "
-        "rather than guessing. Keep answers short and practical.\n\n"
+        "rather than guessing. Never visibly display raw latitude/longitude coordinates "
+        "unless the user explicitly asks for coordinates; refer to venues by name, address, "
+        "city, category, and estimated cost. Keep answers short and practical.\n\n"
         f"Current trip settings: {json.dumps(state, ensure_ascii=False)}\n\n"
         f"VERIFIED_CONTEXT: {json.dumps(context, ensure_ascii=False, default=str)}"
     )
@@ -795,32 +797,58 @@ def _weighted_score(row: pd.Series) -> float:
     return total / used if used else 0.0
 
 
-def _diversity_rerank(candidates: pd.DataFrame, top_k: int) -> pd.DataFrame:
-    """Small deterministic category-repeat penalty after grounded scoring.
-
-    It improves mixed-interest lists without overriding strong preference relevance.
-    For single-category requests this is equivalent to score ordering.
+def _balance_categories(df: pd.DataFrame, allowed_categories: list[str], top_n: int, score_col: str = "recommendation_score") -> pd.DataFrame:
+    """Interleave top-ranked places across requested categories in round-robin fashion.
+    Ensures diverse category representation (e.g. attractions, restaurants, cafes)
+    whenever data exists for multiple requested categories, preventing any single category
+    from crowding out the others.
     """
+    if df.empty or top_n <= 0:
+        return df.head(0)
+
+    cat_col = "requested_category" if "requested_category" in df.columns else "place_type"
+    plural = {"attraction": "attractions", "restaurant": "restaurants", "cafe": "cafes"}
+
+    if cat_col == "place_type" and "requested_category" not in df.columns:
+        df = df.copy()
+        df["requested_category"] = df["place_type"].map(lambda p: plural.get(str(p).lower(), str(p)))
+        cat_col = "requested_category"
+
+    by_cat = {}
+    for cat in allowed_categories:
+        cat_norm = plural.get(cat.rstrip("s"), cat)
+        sub = df[df[cat_col].map(lambda x: plural.get(str(x).rstrip("s"), str(x))) == cat_norm]
+        if not sub.empty:
+            if score_col in sub.columns:
+                sub = sub.sort_values(by=score_col, ascending=False)
+            by_cat[cat_norm] = sub.to_dict("records")
+        else:
+            by_cat[cat_norm] = []
+
+    ordered = []
+    active_cats = [c for c in allowed_categories if len(by_cat.get(plural.get(c.rstrip("s"), c), [])) > 0]
+    if not active_cats:
+        return df.sort_values(by=score_col, ascending=False).head(top_n).reset_index(drop=True)
+
+    cursors = {c: 0 for c in active_cats}
+    while len(ordered) < top_n and any(cursors[c] < len(by_cat[plural.get(c.rstrip("s"), c)]) for c in active_cats):
+        for c in active_cats:
+            c_key = plural.get(c.rstrip("s"), c)
+            if cursors[c] < len(by_cat[c_key]) and len(ordered) < top_n:
+                ordered.append(by_cat[c_key][cursors[c]])
+                cursors[c] += 1
+
+    return pd.DataFrame(ordered).reset_index(drop=True)
+
+
+def _diversity_rerank(candidates: pd.DataFrame, top_k: int) -> pd.DataFrame:
+    """Deterministic category balancing and diversity re-ranking after grounded scoring."""
     if candidates.empty or top_k <= 0:
         return candidates.head(0)
-    remaining = candidates.copy()
-    selected = []
-    category_counts = {}
-    while not remaining.empty and len(selected) < top_k:
-        adjusted = []
-        for idx, row in remaining.iterrows():
-            category = row.get("requested_category")
-            repeat_count = category_counts.get(category, 0)
-            penalty = min(0.12, 0.04 * repeat_count)
-            novelty_bonus = 0.02 if repeat_count == 0 and category_counts else 0.0
-            adjusted.append((float(row["ranking_score"]) - penalty + novelty_bonus, idx))
-        _, best_idx = max(adjusted, key=lambda x: (x[0], str(remaining.loc[x[1]].get("name", ""))))
-        best = remaining.loc[best_idx].copy()
-        selected.append(best)
-        category = best.get("requested_category")
-        category_counts[category] = category_counts.get(category, 0) + 1
-        remaining = remaining.drop(index=best_idx)
-    return pd.DataFrame(selected).reset_index(drop=True)
+    categories = list(candidates["requested_category"].dropna().unique())
+    if not categories:
+        return candidates.head(top_k)
+    return _balance_categories(candidates, categories, top_k, score_col="ranking_score")
 
 
 def fetch_ml_recommendations(city, interests, trip_month, top_k=10, require_accessibility=False):
@@ -979,11 +1007,8 @@ def recommend_places(city, interests, budget=None, features_df=None, top_n=10,
         if excluded_places:
             ml_df = ml_df[~ml_df["name"].isin(excluded_places)]
         backfilled = _backfill_local_fields(ml_df, city, features_df)
-        # Estimated prices are used only by itinerary feasibility, not to claim
-        # venue-level recommendation evidence.
-        return backfilled.sort_values(
-            "recommendation_score", ascending=False
-        ).head(top_n).reset_index(drop=True)
+        allowed_categories = list(map_interests_to_categories(interest_list))
+        return _balance_categories(backfilled, allowed_categories, top_n, score_col="recommendation_score")
 
     # --- 2) Local static fallback when the live Places API is unavailable ---
     if features_df is None or city not in LOCAL_DATA_CITIES:
@@ -1006,8 +1031,8 @@ def recommend_places(city, interests, budget=None, features_df=None, top_n=10,
 
     plural = {"attraction": "attractions", "restaurant": "restaurants", "cafe": "cafes"}
     places["requested_category"] = places["place_type"].map(plural)
-    allowed_categories = set(map_interests_to_categories(interest_list))
-    places = places[places["requested_category"].isin(allowed_categories)].copy()
+    allowed_categories = list(map_interests_to_categories(interest_list))
+    places = places[places["requested_category"].isin(set(allowed_categories))].copy()
     if places.empty:
         return places
     places["category"] = places.get("categories", "")
@@ -1035,8 +1060,7 @@ def recommend_places(city, interests, budget=None, features_df=None, top_n=10,
         CATEGORY_VISIT_DURATION_HOURS
     ).fillna(1.5)
     places["total_time_hours"] = places["visit_duration_hours"]
-    places = places.sort_values(by="recommendation_score", ascending=False)
-    return places.head(top_n).reset_index(drop=True)
+    return _balance_categories(places, allowed_categories, top_n, score_col="recommendation_score")
 
 
 def baseline_recommend_places(city, features_df, top_n=10):

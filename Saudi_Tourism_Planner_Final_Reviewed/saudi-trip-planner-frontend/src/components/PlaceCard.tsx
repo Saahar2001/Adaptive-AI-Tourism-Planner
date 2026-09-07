@@ -32,12 +32,16 @@ export default function PlaceCard({ place, isSelected = false, onSelect, city }:
   function handleToggleFavorite(e: React.MouseEvent) {
     e.stopPropagation();
     const added = FavoritesService.toggleFavorite({
+      id: place.name,
       name: place.name,
       city: city || "Saudi Arabia",
       category: place.category,
       estimated_cost: place.estimated_cost,
       address: place.address,
       image_url: place.image_url,
+      latitude: place.latitude,
+      longitude: place.longitude,
+      source: place.source,
     });
     setIsFav(added);
   }

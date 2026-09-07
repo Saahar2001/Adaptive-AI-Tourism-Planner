@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTrip } from "../lib/TripContext";
 import { generateTrip, ApiError } from "../lib/api";
 import type { TransportMode } from "../lib/types";
@@ -22,11 +22,14 @@ import { TripStorageService } from "../lib/trips";
 
 export default function Plan() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { prefs, setPrefs, setResult } = useTrip();
 
   const user = AuthService.getCurrentUser();
 
-  const [city, setCity] = useState(prefs?.city ?? CITIES[0]);
+  const cityParam = searchParams.get("city");
+  const matchedCity = CITIES.find((c) => c.toLowerCase() === cityParam?.toLowerCase());
+  const [city, setCity] = useState(matchedCity ?? prefs?.city ?? CITIES[0]);
   const [budget, setBudget] = useState(prefs?.budget ?? 1000);
   const [days, setDays] = useState(prefs?.days ?? 3);
   const [interests, setInterests] = useState<string[]>(

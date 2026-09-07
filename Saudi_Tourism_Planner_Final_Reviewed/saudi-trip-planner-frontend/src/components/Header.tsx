@@ -29,6 +29,7 @@ export default function Header() {
     { to: "/plan", label: "Plan Trip" },
     { to: "/trending", label: "Trending" },
     { to: "/my-trips", label: "My Trips" },
+    { to: "/favorites", label: "Favorites" },
     { to: "/profile", label: "Profile" },
   ];
 

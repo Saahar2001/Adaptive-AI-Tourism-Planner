@@ -66,6 +66,42 @@ gmaps = googlemaps.Client(key=API_KEY) if (googlemaps and API_KEY) else None
 
 _PHOTO_CACHE: dict = {}
 
+VERIFIED_LANDMARK_PHOTOS = {
+    # Abha
+    ("shada archaeological palace museum", "abha"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/7f/%D9%82%D8%B5%D8%B1_%D8%B4%D8%AF%D8%A72.jpg/960px-%D9%82%D8%B5%D8%B1_%D8%B4%D8%AF%D8%A72.jpg",
+    ("shada palace", "abha"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/7f/%D9%82%D8%B5%D8%B1_%D8%B4%D8%AF%D8%A72.jpg/960px-%D9%82%D8%B5%D8%B1_%D8%B4%D8%AF%D8%A72.jpg",
+    ("al habala village", "abha"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/4c/Al_Habala_village%2C_Saudi_Arabia.jpg/960px-Al_Habala_village%2C_Saudi_Arabia.jpg",
+    ("rijal almaa heritage village", "abha"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/07/Rijal_Almaa_Heritage_Village.jpg/960px-Rijal_Almaa_Heritage_Village.jpg",
+    # Makkah
+    ("masjid al-haram", "makkah"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1b/The_Kaaba_during_Hajj.jpg/960px-The_Kaaba_during_Hajj.jpg",
+    ("abraj al bait", "makkah"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a4/Abraj_Al_Bait_Tower_2017.jpg/960px-Abraj_Al_Bait_Tower_2017.jpg",
+    ("abraj al bait & clock tower museum", "makkah"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a4/Abraj_Al_Bait_Tower_2017.jpg/960px-Abraj_Al_Bait_Tower_2017.jpg",
+    ("clock tower museum", "makkah"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a4/Abraj_Al_Bait_Tower_2017.jpg/960px-Abraj_Al_Bait_Tower_2017.jpg",
+    ("jabal al-nour (hira cave)", "makkah"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b5/Jabal_al-Noor_in_Mecca.jpg/960px-Jabal_al-Noor_in_Mecca.jpg",
+    ("jabal thawr", "makkah"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/87/Jabal_Thawr.jpg/960px-Jabal_Thawr.jpg",
+    # Madinah
+    ("al-masjid an-nabawi", "madinah"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/87/Al-Masjid_An-Nabawi_%28Medina%2C_Saudi_Arabia%29.jpg/960px-Al-Masjid_An-Nabawi_%28Medina%2C_Saudi_Arabia%29.jpg",
+    ("quba mosque", "madinah"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/af/Masjid_Quba_Mosque.jpg/960px-Masjid_Quba_Mosque.jpg",
+    ("quba mosque (oldest mosque)", "madinah"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/af/Masjid_Quba_Mosque.jpg/960px-Masjid_Quba_Mosque.jpg",
+    ("mount uhud", "madinah"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/13/Mount_Uhud.jpg/960px-Mount_Uhud.jpg",
+    # Jeddah
+    ("historic al-balad", "jeddah"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/db/Old_Jeddah_%28Al_Balad%29_architecture_3_Feb_2022.jpg/960px-Old_Jeddah_%28Al_Balad%29_architecture_3_Feb_2022.jpg",
+    ("historic al-balad (unesco world heritage)", "jeddah"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/db/Old_Jeddah_%28Al_Balad%29_architecture_3_Feb_2022.jpg/960px-Old_Jeddah_%28Al_Balad%29_architecture_3_Feb_2022.jpg",
+    ("al-shallal theme park", "jeddah"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a2/Al_Shallal_Theme_Park_Jeddah.jpg/960px-Al_Shallal_Theme_Park_Jeddah.jpg",
+    # Riyadh
+    ("palace wall", "riyadh"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/47/Murabba_Palace_%281%29.jpg/960px-Murabba_Palace_%281%29.jpg",
+    ("al murabba historical palace", "riyadh"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/47/Murabba_Palace_%281%29.jpg/960px-Murabba_Palace_%281%29.jpg",
+    ("masmak fortress", "riyadh"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/96/Masmak_Fort_Riyadh.jpg/960px-Masmak_Fort_Riyadh.jpg",
+    ("national museum of saudi arabia", "riyadh"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/db/National_Museum_of_Saudi_Arabia_in_Riyadh.jpg/960px-National_Museum_of_Saudi_Arabia_in_Riyadh.jpg",
+    # Tabuk
+    ("hejaz railway station heritage museum", "tabuk"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cd/Damascus_Hejaz_railway_station_7615.jpg/960px-Damascus_Hejaz_railway_station_7615.jpg",
+    ("tabuk castle (historic fortress)", "tabuk"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/67/Tabuk_Castle.jpg/960px-Tabuk_Castle.jpg",
+    # AlUla
+    ("elephant rock (jabal alfil)", "alula"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/86/Elephant_rock%2C_Al-%27Ula.jpg/960px-Elephant_rock%2C_Al-%27Ula.jpg",
+    ("alula oasis cultural heritage trail", "alula"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/13/Al_Ula_%286748577917%29.jpg/960px-Al_Ula_%286748577917%29.jpg",
+    ("hegra (madain salih)", "alula"): "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/13/Al_Ula_%286748577917%29.jpg/960px-Al_Ula_%286748577917%29.jpg",
+}
+
 
 def _google_places_photo(place_name: str, city: str):
     """Try to find a photo of this exact place via the Google Places API.
@@ -96,15 +132,15 @@ def _wikipedia_photo(place_name: str, city: str):
 
     has_arabic = bool(re.search(r"[\u0600-\u06ff]", place_name))
     domain = "ar.wikipedia.org" if has_arabic else "en.wikipedia.org"
-    generic_rejects = {"saudi arabia", city.lower(), "tourism in", "list of", "transport in", "geography of"}
+    generic_rejects = {"saudi arabia", city.lower(), "tourism in", "list of", "transport in", "geography of", "history of"}
 
     try:
         url = f"https://{domain}/w/api.php"
         params = {
             "action": "query",
             "generator": "search",
-            "gsrsearch": f"{place_name} {city}",
-            "gsrlimit": 3,
+            "gsrsearch": f"{place_name} {city} Saudi Arabia",
+            "gsrlimit": 4,
             "prop": "pageimages",
             "pithumbsize": 600,
             "format": "json",
@@ -112,11 +148,14 @@ def _wikipedia_photo(place_name: str, city: str):
         res = requests.get(
             url,
             params=params,
-            headers={"User-Agent": "SaudiTourismApp/1.0"},
-            timeout=1.5,
-        ).json()
+            headers={"User-Agent": "SaudiTourismPlanner/2.0 (SamsungInnovationCampusCapstone; presentation-demo; contact: saudi_tourism_planner@sic-project.org)"},
+            timeout=2.0,
+        )
+        if getattr(res, "status_code", 200) != 200:
+            return None
+        res_data = res.json()
 
-        pages = res.get("query", {}).get("pages", {})
+        pages = res_data.get("query", {}).get("pages", {})
         for page in pages.values():
             title = page.get("title", "")
             thumbnail = page.get("thumbnail", {}).get("source")
@@ -135,7 +174,7 @@ def _wikipedia_photo(place_name: str, city: str):
             tokens_t = set(t_norm.split())
             overlap = len(tokens_p & tokens_t) / max(1, len(tokens_p))
 
-            if ratio >= 0.38 or overlap >= 0.5:
+            if ratio >= 0.35 or overlap >= 0.35:
                 return thumbnail
     except Exception:
         pass
@@ -145,23 +184,37 @@ def _wikipedia_photo(place_name: str, city: str):
 
 def get_exact_place_photo(place_name: str, city: str, category: str = ""):
     """Multi-source safe image resolver:
-    1. Google Places photo ONLY if GOOGLE_PLACES_API_KEY is configured.
-    2. Wikipedia / Wikimedia search with title similarity verification.
-    3. Safe fallback returning None (never an unrelated stock photo).
-    Caches resolved URLs in memory.
+    1. Verified place image registry if available.
+    2. Google Places photo ONLY if GOOGLE_PLACES_API_KEY is configured.
+    3. Wikipedia / Wikimedia search with title similarity verification.
+    4. Safe fallback returning None (never an unrelated stock photo).
+    Caches resolved URLs in memory (including None for failed lookups to prevent duplicate calls).
     """
     if not place_name or place_name in {"Unknown Place", "Unnamed place"}:
         return None
 
     # Local restaurants and cafes do not have Wikipedia pages; skip to avoid unnecessary external HTTP calls
-    if category and str(category).lower() in {"restaurant", "cafe", "catering"}:
+    cat_str = str(category or "").lower().strip()
+    if any(k in cat_str for k in ("restaurant", "cafe", "café", "catering", "food", "dining")):
         return None
 
-    cache_key = (place_name, city)
+    cache_key = (place_name.strip().lower(), city.strip().lower())
     if cache_key in _PHOTO_CACHE:
         return _PHOTO_CACHE[cache_key]
 
-    photo = _google_places_photo(place_name, city) or _wikipedia_photo(place_name, city)
+    # Priority 1: Check verified landmark registry
+    if cache_key in VERIFIED_LANDMARK_PHOTOS:
+        photo = VERIFIED_LANDMARK_PHOTOS[cache_key]
+        _PHOTO_CACHE[cache_key] = photo
+        return photo
+
+    # Priority 2: Google Places photo if API key configured
+    photo = _google_places_photo(place_name, city)
+
+    # Priority 3: Wikipedia / Wikimedia similarity search
+    if not photo:
+        photo = _wikipedia_photo(place_name, city)
+
     _PHOTO_CACHE[cache_key] = photo
     return photo
 
@@ -512,6 +565,12 @@ def get_trending_places():
                 "trend_score": round(float(row.get("trending_score", 0.0)), 3),
                 "score_basis": "distance, category-level affordability estimate, and landmark-name relevance; not a visitor rating",
                 "image_url": image_url,
+                "latitude": _clean(row.get("latitude")),
+                "longitude": _clean(row.get("longitude")),
+                "address": row.get("address") or f"{city}, Saudi Arabia",
+                "accessibility_status": row.get("accessibility_status", "unknown"),
+                "opening_hours": row.get("opening_hours") or row.get("opening_hours_status") or "unknown",
+                "source": row.get("source", "Curated Saudi Tourism Dataset"),
             })
 
         return {"status": "success", "trending_places": records}

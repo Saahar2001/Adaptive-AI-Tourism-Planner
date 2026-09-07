@@ -98,5 +98,8 @@ export interface FavoritePlace {
   estimated_cost?: number;
   address?: string;
   image_url?: string | null;
+  latitude?: number;
+  longitude?: number;
+  source?: string;
   savedAt: string;
 }

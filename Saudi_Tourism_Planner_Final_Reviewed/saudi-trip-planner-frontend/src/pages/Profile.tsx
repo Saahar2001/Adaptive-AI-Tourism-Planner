@@ -248,9 +248,17 @@ export default function Profile() {
                 Places you have saved across Saudi Arabia
               </p>
             </div>
-            <span className="text-xs font-semibold bg-white border border-ink-900/10 px-3 py-1 rounded-full text-ink-700">
-              {favorites.length} places
-            </span>
+            <div className="flex items-center gap-2.5">
+              <Link
+                to="/favorites"
+                className="text-xs font-semibold text-palm-700 hover:text-palm-800 hover:underline"
+              >
+                Open Favorites Page →
+              </Link>
+              <span className="text-xs font-semibold bg-white border border-ink-900/10 px-3 py-1 rounded-full text-ink-700">
+                {favorites.length} places
+              </span>
+            </div>
           </div>
 
           {favorites.length === 0 ? (

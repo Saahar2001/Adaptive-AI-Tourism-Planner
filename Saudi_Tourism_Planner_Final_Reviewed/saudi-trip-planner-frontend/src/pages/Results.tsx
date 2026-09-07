@@ -5,14 +5,11 @@ import TripMap from "../components/TripMap";
 import PlaceCard from "../components/PlaceCard";
 import { TripStorageService } from "../lib/trips";
 import { FavoritesService } from "../lib/favorites";
-import type { PlaceCategory } from "../lib/types";
+import type { PlaceCategory, FavoritePlace } from "../lib/types";
 import {
   Clock,
   Compass,
-  CheckCircle2,
-  HelpCircle,
   Heart,
-  Share2,
   Calendar,
   DollarSign,
   AlertCircle,
@@ -22,7 +19,7 @@ import {
 const CATEGORY_TABS: { value: PlaceCategory; label: string }[] = [
   { value: "attractions", label: "📍 Attractions" },
   { value: "restaurants", label: "🍽️ Restaurants" },
-  { value: "cafes", label: "☕ Cafes" },
+  { value: "cafes", label: "☕ Cafés" },
 ];
 
 export default function Results() {
@@ -32,9 +29,19 @@ export default function Results() {
   const [activeCategory, setActiveCategory] = useState<PlaceCategory>("attractions");
   const [selectedPlace, setSelectedPlace] = useState<string | null>(null);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [favorites, setFavorites] = useState<FavoritePlace[]>(() => FavoritesService.getUserFavorites());
+  const [showFavoritesOnMap, setShowFavoritesOnMap] = useState(false);
 
   // References to scroll cards into view
   const stopRefs = useRef<Record<string, HTMLElement | null>>({});
+
+  useEffect(() => {
+    function refreshFavs() {
+      setFavorites(FavoritesService.getUserFavorites());
+    }
+    window.addEventListener("favorites-changed", refreshFavs);
+    return () => window.removeEventListener("favorites-changed", refreshFavs);
+  }, []);
 
   useEffect(() => {
     if (!prefs || !result) {
@@ -66,10 +73,29 @@ export default function Results() {
   const day = result.itinerary.find((d) => d.day === activeDay) ?? result.itinerary[0];
   const placesForCategory = result.places.filter((p) => p.category === activeCategory);
 
+  // City-relevant favorites
+  const cityFavorites = favorites.filter((fav) => {
+    const fc = (fav.city || "").toLowerCase().trim();
+    const cur = (prefs.city || "").toLowerCase().trim();
+    return fc === cur || fc === "saudi arabia" || fc === "";
+  });
+
   // When a place is selected (from map marker click or card click), scroll card into view if practical
   function handleSelectPlace(placeName: string) {
     setSelectedPlace(placeName);
     const el = stopRefs.current[placeName];
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }
+
+  function handleSelectFavorite(fav: FavoritePlace) {
+    setSelectedPlace(fav.name);
+    // If favorite has valid coordinates, ensure favorites are shown on map to focus
+    if (typeof fav.latitude === "number" && typeof fav.longitude === "number") {
+      setShowFavoritesOnMap(true);
+    }
+    const el = stopRefs.current[fav.name];
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
@@ -151,6 +177,93 @@ export default function Results() {
           </div>
         )}
 
+        {/* Favorite Places Section (near top after trip summary) */}
+        {cityFavorites.length > 0 && (
+          <section className="mt-6 bg-white/70 border border-ink-900/10 rounded-2xl p-4 shadow-xs">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Heart className="w-4 h-4 text-red-500 fill-red-500" />
+                <h2 className="font-display font-medium text-base text-ink-900">Favorite Places</h2>
+                <span className="text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded-full border border-red-200 font-medium">
+                  {cityFavorites.length} saved
+                </span>
+              </div>
+              <button
+                onClick={() => setShowFavoritesOnMap((prev) => !prev)}
+                className={`text-xs px-3 py-1 rounded-full border transition flex items-center gap-1.5 ${
+                  showFavoritesOnMap
+                    ? "bg-rose-50 border-rose-300 text-rose-700 font-semibold"
+                    : "bg-white border-ink-900/15 text-ink-700 hover:border-palm-600"
+                }`}
+              >
+                <Heart className={`w-3 h-3 ${showFavoritesOnMap ? "fill-rose-600 text-rose-600" : ""}`} />
+                <span>{showFavoritesOnMap ? "Favorites Shown on Map" : "Show Favorites on Map"}</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {cityFavorites.map((fav) => {
+                const isSelected = selectedPlace?.toLowerCase().trim() === fav.name.toLowerCase().trim();
+                const hasCoords =
+                  typeof fav.latitude === "number" &&
+                  typeof fav.longitude === "number" &&
+                  Number.isFinite(fav.latitude) &&
+                  Number.isFinite(fav.longitude);
+
+                return (
+                  <div
+                    key={fav.id}
+                    onClick={() => handleSelectFavorite(fav)}
+                    className={`group p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
+                      isSelected
+                        ? "border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/30 shadow-xs"
+                        : "border-ink-900/10 bg-white hover:border-palm-600/50"
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-1.5">
+                        <p className="font-semibold text-xs text-ink-900 group-hover:text-palm-700 line-clamp-1">
+                          {fav.name}
+                        </p>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            FavoritesService.removeFavorite(fav.id);
+                          }}
+                          className="text-ink-700/40 hover:text-red-500 p-0.5"
+                          title="Remove from favorites"
+                        >
+                          <Heart className="w-3.5 h-3.5 fill-red-500 text-red-500" />
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-palm-700 capitalize mt-0.5">
+                        {fav.category} • {fav.city}
+                      </p>
+                      {fav.address && (
+                        <p className="text-[10px] text-ink-700/60 mt-1 line-clamp-1">
+                          {fav.address}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-ink-900/5 text-[10px]">
+                      {typeof fav.estimated_cost === "number" ? (
+                        <span className="font-medium text-palm-700">Est. {fav.estimated_cost} SAR</span>
+                      ) : (
+                        <span />
+                      )}
+                      {hasCoords ? (
+                        <span className="text-palm-700 font-medium">📍 Focus Map</span>
+                      ) : (
+                        <span className="text-ink-700/40">No map pin</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         <div className="grid lg:grid-cols-[1fr_440px] gap-8 mt-8">
           <div>
             {/* Day tabs */}
@@ -184,7 +297,7 @@ export default function Results() {
 
               <ol className="space-y-3">
                 {day?.stops.map((stop, i) => {
-                  const isSelected = selectedPlace === stop.place;
+                  const isSelected = selectedPlace?.toLowerCase().trim() === stop.place.toLowerCase().trim();
                   const isFav = FavoritesService.isFavorite(stop.place, prefs.city);
 
                   return (
@@ -256,15 +369,25 @@ export default function Results() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              const match = result.places.find(
+                                (p) => p.name.toLowerCase().trim() === stop.place.toLowerCase().trim()
+                              );
                               FavoritesService.toggleFavorite({
+                                id: stop.place,
                                 name: stop.place,
                                 city: prefs.city,
                                 category: stop.category,
                                 estimated_cost: stop.estimated_cost,
+                                address: match?.address,
+                                image_url: match?.image_url,
+                                latitude: match?.latitude,
+                                longitude: match?.longitude,
+                                source: match?.source,
                               });
                             }}
                             className="p-1 text-ink-700/40 hover:text-red-500 transition"
                             title="Bookmark place"
+                            aria-label="Bookmark place"
                           >
                             <Heart className={`w-4 h-4 ${isFav ? "text-red-500 fill-red-500" : ""}`} />
                           </button>
@@ -342,6 +465,9 @@ export default function Results() {
                   places={result.places}
                   selectedPlace={selectedPlace}
                   onSelectPlace={handleSelectPlace}
+                  favoritePlaces={favorites}
+                  showFavorites={showFavoritesOnMap}
+                  onToggleFavorites={setShowFavoritesOnMap}
                 />
               </div>
             </div>
