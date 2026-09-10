@@ -19,6 +19,7 @@ interface PlaceCardProps {
 export default function PlaceCard({ place, isSelected = false, onSelect, city }: PlaceCardProps) {
   const [imgError, setImgError] = useState(false);
   const [isFav, setIsFav] = useState(false);
+  const [showWhy, setShowWhy] = useState(false);
 
   useEffect(() => {
     setIsFav(FavoritesService.isFavorite(place.name, city));
@@ -134,12 +135,33 @@ export default function PlaceCard({ place, isSelected = false, onSelect, city }:
               </span>
             )}
           </div>
-          {place.recommendation_score && (
+          {typeof place.recommendation_score === "number" && (
             <span className="text-[10px] bg-sand-200/50 px-1.5 py-0.5 rounded text-ink-700">
-              Match {Math.round(place.recommendation_score * 100)}%
+              Score {Math.round(place.recommendation_score * 100)}%
             </span>
           )}
         </div>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setShowWhy((value) => !value);
+          }}
+          className="mt-3 text-left text-[11px] font-semibold text-palm-700 hover:text-palm-800"
+          aria-expanded={showWhy}
+        >
+          {showWhy ? "Hide recommendation details" : "Why recommended?"}
+        </button>
+        {showWhy && (
+          <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-lg bg-sand-50 border border-ink-900/5 p-2.5 text-[10px] text-ink-700">
+            <span>Preference <strong>{Math.round((place.preference_match ?? 0) * 100)}%</strong></span>
+            <span>Regional Demand <strong>{Math.round((place.regional_demand ?? 0) * 100)}%</strong></span>
+            <span>Seasonality <strong>{Math.round((place.seasonality ?? 0) * 100)}%</strong></span>
+            <span>Distance <strong>{Math.round((place.distance_fit ?? 0) * 100)}%</strong></span>
+            <span className="col-span-2">Estimated Budget Fit <strong>{Math.round((place.budget_fit ?? 0) * 100)}%</strong></span>
+            <span className="col-span-2 text-ink-700/60">Budget fit uses category-level estimated costs.</span>
+          </div>
+        )}
       </div>
     </div>
   );
