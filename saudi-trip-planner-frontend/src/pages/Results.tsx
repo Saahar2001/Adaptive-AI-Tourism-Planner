@@ -162,6 +162,17 @@ export default function Results() {
           )}
         </div>
 
+        {result.metadata && (
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-700/75">
+            <span className="font-semibold text-ink-900">
+              Estimated trip cost: {result.metadata.estimated_total_cost ?? 0} SAR
+            </span>
+            <span>Remaining estimated budget: {result.metadata.remaining_budget ?? prefs.budget} SAR</span>
+            <span>Budget status: {result.metadata.budget_constraint_status?.replace("_", " ")}</span>
+            <span className="text-ink-700/60">Budget fit uses category-level estimated costs.</span>
+          </div>
+        )}
+
         {/* Informative non-alarming warnings */}
         {result.warnings && result.warnings.length > 0 && (
           <div className="mt-4 p-4 rounded-xl bg-amber-50/80 border border-amber-200/70 space-y-1.5 text-xs text-amber-900 font-body">
@@ -409,7 +420,7 @@ export default function Results() {
                     Ranked Recommendations
                   </h2>
                   <p className="text-xs text-ink-700/70">
-                    Ranked by contextual demand, preference match, and distance
+                    Ranked by preference, contextual demand, seasonality, distance, quality, and estimated budget fit
                   </p>
                 </div>
               </div>
