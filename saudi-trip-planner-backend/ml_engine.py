@@ -103,14 +103,15 @@ CITIES = {
 
 LOCAL_DATA_CITIES = set(CITIES.keys())
 
-# Grounded ranking weights. Budget and accessibility are constraints/evidence gates,
-# not ranking signals when venue-level evidence is unavailable.
+# Grounded ranking weights. Costs are category-level estimates, so budget fit is
+# an affordability signal rather than venue-price evidence.
 RANK_WEIGHTS = {
-    "preference_match": 0.45,
+    "preference_match": 0.40,
     "place_quality": 0.10,
     "regional_demand": 0.15,
     "seasonality": 0.10,
-    "distance_fit": 0.20,
+    "distance_fit": 0.15,
+    "budget_fit": 0.10,
 }
 
 CITY_TO_PROVINCE = {
@@ -786,6 +787,40 @@ def _seasonality_score(artifacts, city: str, month_num: int):
     return 0.5, "neutral_fallback"
 
 
+def calculate_budget_fit(estimated_cost, budget, days):
+    """Return affordability against an estimated per-stop trip allowance."""
+    if budget is None or days is None or budget <= 0 or days <= 0:
+        return 0.0
+    if estimated_cost is None or pd.isna(estimated_cost):
+        return 0.0
+    capacity = max(int(days) * 4, 1)
+    allowance = float(budget) / capacity
+    return float(max(0.0, min(1.0, allowance / max(float(estimated_cost), 1.0))))
+
+
+def budget_constraint_status(recommendations, budget, days):
+    """Classify whether category-level estimates constrain recommendation fit."""
+    if recommendations is None or recommendations.empty or budget is None or budget <= 0:
+        return "binding"
+    capacity = max(int(days) * 4, 1)
+    allowance = float(budget) / capacity
+    costs = pd.to_numeric(recommendations.get("estimated_cost"), errors="coerce").dropna()
+    if costs.empty or allowance >= float(costs.max()):
+        return "non_binding"
+    if allowance < float(costs.min()):
+        return "binding"
+    return "partially_binding"
+
+
+def _apply_recommendation_scores(frame: pd.DataFrame, budget, days) -> pd.DataFrame:
+    scored = frame.copy()
+    scored["budget_fit"] = scored.apply(
+        lambda row: calculate_budget_fit(row.get("estimated_cost"), budget, days), axis=1
+    )
+    scored["recommendation_score"] = scored.apply(_weighted_score, axis=1)
+    return scored
+
+
 def _weighted_score(row: pd.Series) -> float:
     total, used = 0.0, 0.0
     for feature, weight in RANK_WEIGHTS.items():
@@ -851,7 +886,8 @@ def _diversity_rerank(candidates: pd.DataFrame, top_k: int) -> pd.DataFrame:
     return _balance_categories(candidates, categories, top_k, score_col="ranking_score")
 
 
-def fetch_ml_recommendations(city, interests, trip_month, top_k=10, require_accessibility=False):
+def fetch_ml_recommendations(city, interests, trip_month, top_k=10, require_accessibility=False,
+                             budget=None, days=1):
     """Retrieve live grounded venues and rank them with contextual evidence.
 
     KAPSARC city and national-sector signals are combined as contextual features;
@@ -917,7 +953,11 @@ def fetch_ml_recommendations(city, interests, trip_month, top_k=10, require_acce
         candidates["distance_fit"] = np.nan
 
     candidates["opening_hours_raw"] = candidates["opening_hours"]
-    candidates["ranking_score"] = candidates.apply(_weighted_score, axis=1)
+    candidates["place_type"] = candidates["requested_category"].str.rstrip("s")
+    candidates["estimated_cost"] = candidates["place_type"].map(CATEGORY_COST_ESTIMATE_SAR).fillna(50.0)
+    candidates["cost_is_estimate"] = True
+    candidates = _apply_recommendation_scores(candidates, budget, days)
+    candidates["ranking_score"] = candidates["recommendation_score"]
     candidates = candidates.sort_values(
         ["ranking_score", "place_quality", "name"],
         ascending=[False, False, True],
@@ -926,7 +966,6 @@ def fetch_ml_recommendations(city, interests, trip_month, top_k=10, require_acce
     ranked = _diversity_rerank(candidates, top_k)
 
     ranked["place_type"] = ranked["requested_category"].str.rstrip("s")
-    ranked["recommendation_score"] = ranked["ranking_score"]
     ranked["popularity_score"] = ranked["place_quality"]  # legacy response field only; not a rating
     ranked["distance_score"] = ranked["distance_fit"]
     ranked["city"] = city
@@ -990,7 +1029,8 @@ def predict_next_month_city_demand(city: str):
 # ============================================================
 
 def recommend_places(city, interests, budget=None, features_df=None, top_n=10,
-                      require_accessibility=False, excluded_places=None, trip_month=None):
+                      require_accessibility=False, excluded_places=None, trip_month=None,
+                      days=1):
     interest_list = _normalize_interests(interests)
     excluded_places = set(excluded_places or [])
     trip_month = int(trip_month or pd.Timestamp.now().month)
@@ -1002,11 +1042,14 @@ def recommend_places(city, interests, budget=None, features_df=None, top_n=10,
         trip_month=trip_month,
         top_k=top_n + len(excluded_places),
         require_accessibility=require_accessibility,
+        budget=budget,
+        days=days,
     )
     if ml_df is not None and not ml_df.empty:
         if excluded_places:
             ml_df = ml_df[~ml_df["name"].isin(excluded_places)]
         backfilled = _backfill_local_fields(ml_df, city, features_df)
+        backfilled = _apply_recommendation_scores(backfilled, budget, days)
         allowed_categories = list(map_interests_to_categories(interest_list))
         return _balance_categories(backfilled, allowed_categories, top_n, score_col="recommendation_score")
 
@@ -1045,11 +1088,10 @@ def recommend_places(city, interests, budget=None, features_df=None, top_n=10,
     )
     # Static popularity_score is not a user rating; keep it as a small fallback
     # context term only, with preference and distance dominating.
-    places["recommendation_score"] = (
-        places["preference_match"] * 0.60
-        + places["distance_score"] * 0.25
-        + places["popularity_score"] * 0.15
-    )
+    places["place_quality"] = pd.to_numeric(places.get("popularity_score"), errors="coerce").fillna(0.5).clip(0, 1)
+    places["regional_demand"] = 0.5
+    places["seasonality"] = 0.5
+    places["distance_fit"] = pd.to_numeric(places.get("distance_score"), errors="coerce").fillna(0.5).clip(0, 1)
     places["_source"] = "local_dataset_fallback"
     places["source"] = "Bundled Geoapify/OpenStreetMap fallback dataset"
     places["source_retrieved_at_utc"] = None
@@ -1060,6 +1102,7 @@ def recommend_places(city, interests, budget=None, features_df=None, top_n=10,
         CATEGORY_VISIT_DURATION_HOURS
     ).fillna(1.5)
     places["total_time_hours"] = places["visit_duration_hours"]
+    places = _apply_recommendation_scores(places, budget, days)
     return _balance_categories(places, allowed_categories, top_n, score_col="recommendation_score")
 
 

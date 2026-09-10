@@ -264,8 +264,11 @@ def _place_to_json(row, city: str = "") -> dict:
         "cost_is_estimate": bool(row.get("cost_is_estimate", True)),
         "recommendation_score": _clean(row.get("recommendation_score")),
         "preference_match": _clean(row.get("preference_match")),
+        "place_quality": _clean(row.get("place_quality")),
         "regional_demand": _clean(row.get("regional_demand")),
         "seasonality": _clean(row.get("seasonality")),
+        "distance_fit": _clean(row.get("distance_fit")),
+        "budget_fit": _clean(row.get("budget_fit")),
         "distance_km_center": _clean(row.get("distance_km_center")),
         "accessibility_status": row.get("accessibility_status", "unknown"),
         "address": row.get("address"),
@@ -321,6 +324,7 @@ def plan_trip(req: PlanTripRequest):
         top_n=max(12, req.days * 4),
         require_accessibility=req.require_accessibility,
         trip_month=trip_month,
+        days=req.days,
     )
 
     warnings = []
@@ -342,6 +346,15 @@ def plan_trip(req: PlanTripRequest):
                 "trip_month": trip_month,
                 "engine": "hybrid_context_ranker",
                 "route_method": "haversine_x_road_factor",
+                "recommendation_weights": dict(eng.RANK_WEIGHTS),
+                "budget_estimate_basis": "category-level estimated costs, not verified venue prices",
+                "costs_are_category_estimates": True,
+                "estimated_places_capacity": max(req.days * 4, 1),
+                "estimated_per_stop_allowance": req.budget / max(req.days * 4, 1),
+                "budget_constraint_status": "binding",
+                "estimated_total_cost": 0.0,
+                "remaining_budget": req.budget,
+                "budget_utilization_pct": 0.0,
             },
         }
 
@@ -367,6 +380,18 @@ def plan_trip(req: PlanTripRequest):
 
     artifacts = eng._load_ml_artifacts()
     metadata = artifacts.get("metadata", {}) if artifacts else {}
+    estimated_total_cost = round(float(itinerary["estimated_cost"].sum()), 2) if itinerary is not None and not itinerary.empty else 0.0
+    recommendation_metadata = {
+        "recommendation_weights": dict(eng.RANK_WEIGHTS),
+        "budget_estimate_basis": "category-level estimated costs, not verified venue prices",
+        "costs_are_category_estimates": True,
+        "estimated_places_capacity": max(req.days * 4, 1),
+        "estimated_per_stop_allowance": req.budget / max(req.days * 4, 1),
+        "budget_constraint_status": eng.budget_constraint_status(recommendations, req.budget, req.days),
+        "estimated_total_cost": estimated_total_cost,
+        "remaining_budget": round(req.budget - estimated_total_cost, 2),
+        "budget_utilization_pct": round((estimated_total_cost / req.budget) * 100, 2),
+    }
     return {
         "places": [_place_to_json(r, city=req.city) for _, r in recommendations.iterrows()],
         "itinerary": [_stop_to_json(r, city=req.city) for _, r in itinerary.iterrows()] if itinerary is not None and not itinerary.empty else [],
@@ -379,6 +404,7 @@ def plan_trip(req: PlanTripRequest):
             "regional_context": "KAPSARC city-total + national tourism-sector signals",
             "seasonality_context": "DataSaudi province/month occupancy",
             "route_method": "haversine_x_road_factor",
+            **recommendation_metadata,
         },
     }
 
@@ -605,6 +631,9 @@ def model_info():
     metrics = artifacts.get("forecast_metrics") or {}
     return {
         "model_version": metadata.get("model_version"),
+        "recommendation_weights": dict(eng.RANK_WEIGHTS),
+        "budget_estimate_basis": "category-level estimated costs, not verified venue prices",
+        "costs_are_category_estimates": True,
         "recommendation_context": {
             "available": True,
             **metadata.get("recommendation_context", {}),
