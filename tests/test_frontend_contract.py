@@ -135,7 +135,7 @@ def test_why_recommended_remains_present():
 def test_plan_budget_label_clarifies_maximum_activity_budget():
     src = text("pages/Plan.tsx")
     assert "Maximum Activity Budget" in src
-    assert "Accommodation, shopping" in src
+    assert "Covers planned venues" not in src
 
 
 def test_results_non_binding_budget_explanation_and_scope_notice():
