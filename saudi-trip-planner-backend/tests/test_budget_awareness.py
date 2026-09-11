@@ -69,7 +69,7 @@ def test_budget_matrix_exposes_normalized_score_breakdown_and_estimate_metadata(
         assert payload["metadata"]["costs_are_category_estimates"] is True
         assert payload["metadata"]["estimated_places_capacity"] == 12
         assert payload["metadata"]["estimated_per_stop_allowance"] == pytest.approx(budget / 12)
-        assert payload["metadata"]["recommendation_weights"]["budget_fit"] == pytest.approx(0.10)
+        assert payload["metadata"]["recommendation_weights"]["budget_fit"] == pytest.approx(0.20)
         assert payload["metadata"]["budget_estimate_basis"]
         assert sum(payload["metadata"]["recommendation_weights"].values()) == pytest.approx(1.0)
         for place in payload["places"]:

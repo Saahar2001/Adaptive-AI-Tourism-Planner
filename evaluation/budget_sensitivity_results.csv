@@ -1,6 +1,6 @@
 Budget,Top Places,Estimated Total Cost,Scheduled Stops,Average Budget Fit,Budget Constraint Status
-200,Palace wall | Entrecôte Café de Paris | Donut House | وادي خنيفه | Al Mayass,190.0,5,0.3393,binding
-300,Palace wall | Entrecôte Café de Paris | Donut House | وادي خنيفه | Al Mayass,300.0,6,0.5089,binding
-500,Palace wall | Entrecôte Café de Paris | Donut House | وادي خنيفه | Al Mayass,460.0,8,0.7847,partially_binding
-1000,Palace wall | Entrecôte Café de Paris | Donut House | وادي خنيفه | Al Mayass,660.0,12,1.0,non_binding
-10000,Palace wall | Entrecôte Café de Paris | Donut House | وادي خنيفه | Al Mayass,660.0,12,1.0,non_binding
+200,Donut House | Al Masaa Cafe | Entrecôte Café de Paris | Coffee Day | Al Mayass,175.0,5,0.3631,binding
+300,Donut House | Al Masaa Cafe | Entrecôte Café de Paris | Coffee Day | Al Mayass,290.0,7,0.5446,binding
+500,Donut House | Al Masaa Cafe | Entrecôte Café de Paris | Coffee Day | Al Mayass,500.0,10,0.8125,partially_binding
+1000,Donut House | Entrecôte Café de Paris | Al Masaa Cafe | Al Mayass | Coffee Day,675.0,12,1.0,non_binding
+10000,Donut House | Entrecôte Café de Paris | Al Masaa Cafe | Al Mayass | Coffee Day,675.0,12,1.0,non_binding

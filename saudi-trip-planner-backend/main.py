@@ -263,13 +263,21 @@ def _place_to_json(row, city: str = "") -> dict:
         "estimated_cost": _clean(row.get("estimated_cost")),
         "cost_is_estimate": bool(row.get("cost_is_estimate", True)),
         "recommendation_score": _clean(row.get("recommendation_score")),
+        "ranking_score": _clean(row.get("ranking_score")),
+        "rank": _clean(row.get("rank")),
         "preference_match": _clean(row.get("preference_match")),
-        "place_quality": _clean(row.get("place_quality")),
+        "budget_fit": _clean(row.get("budget_fit")),
+        "budget_difference": _clean(row.get("budget_difference")),
+        "budget_status": row.get("budget_status"),
         "regional_demand": _clean(row.get("regional_demand")),
         "seasonality": _clean(row.get("seasonality")),
-        "distance_fit": _clean(row.get("distance_fit")),
-        "budget_fit": _clean(row.get("budget_fit")),
         "distance_km_center": _clean(row.get("distance_km_center")),
+        "distance_fit": _clean(row.get("distance_fit")),
+        "place_quality": _clean(row.get("place_quality")),
+        "estimated_travel_minutes_from_center": _clean(row.get("estimated_travel_minutes_from_center")),
+        "diversity_adjusted_score": _clean(row.get("diversity_adjusted_score")),
+        "final_rank": _clean(row.get("final_rank")),
+        "cost_estimate_basis": row.get("cost_estimate_basis"),
         "accessibility_status": row.get("accessibility_status", "unknown"),
         "address": row.get("address"),
         "source": row.get("source", row.get("_source")),
@@ -325,6 +333,7 @@ def plan_trip(req: PlanTripRequest):
         require_accessibility=req.require_accessibility,
         trip_month=trip_month,
         days=req.days,
+        transport_mode=TRANSPORT_MAP[req.transport_mode],
     )
 
     warnings = []
@@ -346,15 +355,6 @@ def plan_trip(req: PlanTripRequest):
                 "trip_month": trip_month,
                 "engine": "hybrid_context_ranker",
                 "route_method": "haversine_x_road_factor",
-                "recommendation_weights": dict(eng.RANK_WEIGHTS),
-                "budget_estimate_basis": "category-level estimated costs, not verified venue prices",
-                "costs_are_category_estimates": True,
-                "estimated_places_capacity": max(req.days * 4, 1),
-                "estimated_per_stop_allowance": req.budget / max(req.days * 4, 1),
-                "budget_constraint_status": "binding",
-                "estimated_total_cost": 0.0,
-                "remaining_budget": req.budget,
-                "budget_utilization_pct": 0.0,
             },
         }
 
@@ -378,20 +378,15 @@ def plan_trip(req: PlanTripRequest):
             "Recommendations were found, but no stops could be scheduled under the current budget/time/evidence constraints."
         )
 
+    estimated_total_cost = 0.0
+    if itinerary is not None and not itinerary.empty and "estimated_cost" in itinerary.columns:
+        estimated_total_cost = float(pd.to_numeric(itinerary["estimated_cost"], errors="coerce").fillna(0.0).sum())
+    remaining_budget = max(0.0, float(req.budget) - estimated_total_cost)
+    budget_utilization_pct = (estimated_total_cost / float(req.budget) * 100.0) if req.budget else 0.0
+    budget_status = eng.budget_constraint_status(recommendations["estimated_cost"], req.budget, req.days)
+
     artifacts = eng._load_ml_artifacts()
     metadata = artifacts.get("metadata", {}) if artifacts else {}
-    estimated_total_cost = round(float(itinerary["estimated_cost"].sum()), 2) if itinerary is not None and not itinerary.empty else 0.0
-    recommendation_metadata = {
-        "recommendation_weights": dict(eng.RANK_WEIGHTS),
-        "budget_estimate_basis": "category-level estimated costs, not verified venue prices",
-        "costs_are_category_estimates": True,
-        "estimated_places_capacity": max(req.days * 4, 1),
-        "estimated_per_stop_allowance": req.budget / max(req.days * 4, 1),
-        "budget_constraint_status": eng.budget_constraint_status(recommendations, req.budget, req.days),
-        "estimated_total_cost": estimated_total_cost,
-        "remaining_budget": round(req.budget - estimated_total_cost, 2),
-        "budget_utilization_pct": round((estimated_total_cost / req.budget) * 100, 2),
-    }
     return {
         "places": [_place_to_json(r, city=req.city) for _, r in recommendations.iterrows()],
         "itinerary": [_stop_to_json(r, city=req.city) for _, r in itinerary.iterrows()] if itinerary is not None and not itinerary.empty else [],
@@ -404,7 +399,25 @@ def plan_trip(req: PlanTripRequest):
             "regional_context": "KAPSARC city-total + national tourism-sector signals",
             "seasonality_context": "DataSaudi province/month occupancy",
             "route_method": "haversine_x_road_factor",
-            **recommendation_metadata,
+            "budget_constraint_status": budget_status,
+            "estimated_total_cost": round(estimated_total_cost, 2),
+            "remaining_budget": round(remaining_budget, 2),
+            "budget_utilization_pct": round(budget_utilization_pct, 1),
+            "scheduled_stops": int(len(itinerary) if itinerary is not None and not itinerary.empty else 0),
+            "estimated_stop_capacity": int(req.days * eng.EXPECTED_STOPS_PER_DAY),
+            "budget_cost_basis": "category-level estimated costs; not verified venue prices",
+            "distance_fit_basis": "transport-aware estimated travel time using Haversine × road factor",
+            "ranking": {
+                "budget_enabled": req.budget is not None,
+                "budget_weight": 0.20,
+                "ranking_weights": eng.RANK_WEIGHTS,
+            },
+            "recommendation_weights": dict(eng.RANK_WEIGHTS),
+            "ranking_weights": dict(eng.RANK_WEIGHTS),
+            "budget_estimate_basis": "category-level estimated costs, not verified venue prices",
+            "costs_are_category_estimates": True,
+            "estimated_places_capacity": int(req.days * eng.EXPECTED_STOPS_PER_DAY),
+            "estimated_per_stop_allowance": float(req.budget) / max(int(req.days * eng.EXPECTED_STOPS_PER_DAY), 1) if req.budget else 0.0,
         },
     }
 
@@ -632,6 +645,7 @@ def model_info():
     return {
         "model_version": metadata.get("model_version"),
         "recommendation_weights": dict(eng.RANK_WEIGHTS),
+        "ranking_weights": dict(eng.RANK_WEIGHTS),
         "budget_estimate_basis": "category-level estimated costs, not verified venue prices",
         "costs_are_category_estimates": True,
         "recommendation_context": {

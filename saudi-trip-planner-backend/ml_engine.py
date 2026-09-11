@@ -103,16 +103,23 @@ CITIES = {
 
 LOCAL_DATA_CITIES = set(CITIES.keys())
 
-# Grounded ranking weights. Costs are category-level estimates, so budget fit is
-# an affordability signal rather than venue-price evidence.
+# Grounded ranking weights. Budget and accessibility are constraints/evidence gates,
+# not ranking signals when venue-level evidence is unavailable.
+# Ranking weights for the personalized recommendation score.
+# Budget is a ranking signal (not a hard venue-price claim): the itinerary
+# generator still enforces the total trip budget as a hard constraint.
 RANK_WEIGHTS = {
     "preference_match": 0.40,
+    "budget_fit": 0.20,
     "place_quality": 0.10,
-    "regional_demand": 0.15,
+    "regional_demand": 0.10,
     "seasonality": 0.10,
-    "distance_fit": 0.15,
-    "budget_fit": 0.10,
+    "distance_fit": 0.10,
 }
+
+EXPECTED_STOPS_PER_DAY = 4
+TRAVEL_FIT_REFERENCE_MINUTES = 30.0
+DIVERSITY_REPEAT_PENALTY = 0.06
 
 CITY_TO_PROVINCE = {
     "riyadh": "riyadh", "jeddah": "makkah", "makkah": "makkah", "mecca": "makkah",
@@ -447,6 +454,36 @@ def _haversine_km(lat1, lon1, lat2, lon2) -> float:
     dl = math.radians(float(lon2) - float(lon1))
     a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
     return 2 * r * math.asin(math.sqrt(a))
+
+
+def estimate_travel_minutes_from_center(distance_km, transport_mode="Driving / Taxi") -> float:
+    """Estimated minutes from the city-center reference using Haversine × road factor.
+
+    This is a transparent planning heuristic, not a live traffic or routing API.
+    """
+    try:
+        straight_km = float(distance_km)
+    except (TypeError, ValueError):
+        return float("nan")
+    if not np.isfinite(straight_km) or straight_km < 0:
+        return float("nan")
+    speed = TRANSPORT_SPEED_KMH.get(transport_mode, ASSUMED_TRAVEL_SPEED_KMH)
+    if speed <= 0:
+        return float("nan")
+    return float((straight_km * ROUTE_DISTANCE_FACTOR / speed) * 60.0)
+
+
+def calculate_transport_fit(distance_km, transport_mode="Driving / Taxi") -> float:
+    """Transport-aware proximity score in [0, 1].
+
+    The same distance is more restrictive for walking than for driving, so the
+    selected transport mode now affects ranking instead of only itinerary time.
+    """
+    minutes = estimate_travel_minutes_from_center(distance_km, transport_mode)
+    if pd.isna(minutes):
+        return 0.5
+    score = 1.0 / (1.0 + (minutes / TRAVEL_FIT_REFERENCE_MINUTES))
+    return float(max(0.0, min(1.0, score)))
 
 
 def _canonical_place_group(category: str) -> str:
@@ -787,40 +824,6 @@ def _seasonality_score(artifacts, city: str, month_num: int):
     return 0.5, "neutral_fallback"
 
 
-def calculate_budget_fit(estimated_cost, budget, days):
-    """Return affordability against an estimated per-stop trip allowance."""
-    if budget is None or days is None or budget <= 0 or days <= 0:
-        return 0.0
-    if estimated_cost is None or pd.isna(estimated_cost):
-        return 0.0
-    capacity = max(int(days) * 4, 1)
-    allowance = float(budget) / capacity
-    return float(max(0.0, min(1.0, allowance / max(float(estimated_cost), 1.0))))
-
-
-def budget_constraint_status(recommendations, budget, days):
-    """Classify whether category-level estimates constrain recommendation fit."""
-    if recommendations is None or recommendations.empty or budget is None or budget <= 0:
-        return "binding"
-    capacity = max(int(days) * 4, 1)
-    allowance = float(budget) / capacity
-    costs = pd.to_numeric(recommendations.get("estimated_cost"), errors="coerce").dropna()
-    if costs.empty or allowance >= float(costs.max()):
-        return "non_binding"
-    if allowance < float(costs.min()):
-        return "binding"
-    return "partially_binding"
-
-
-def _apply_recommendation_scores(frame: pd.DataFrame, budget, days) -> pd.DataFrame:
-    scored = frame.copy()
-    scored["budget_fit"] = scored.apply(
-        lambda row: calculate_budget_fit(row.get("estimated_cost"), budget, days), axis=1
-    )
-    scored["recommendation_score"] = scored.apply(_weighted_score, axis=1)
-    return scored
-
-
 def _weighted_score(row: pd.Series) -> float:
     total, used = 0.0, 0.0
     for feature, weight in RANK_WEIGHTS.items():
@@ -876,18 +879,48 @@ def _balance_categories(df: pd.DataFrame, allowed_categories: list[str], top_n: 
     return pd.DataFrame(ordered).reset_index(drop=True)
 
 
-def _diversity_rerank(candidates: pd.DataFrame, top_k: int) -> pd.DataFrame:
-    """Deterministic category balancing and diversity re-ranking after grounded scoring."""
-    if candidates.empty or top_k <= 0:
-        return candidates.head(0)
-    categories = list(candidates["requested_category"].dropna().unique())
-    if not categories:
-        return candidates.head(top_k)
-    return _balance_categories(candidates, categories, top_k, score_col="ranking_score")
+def _diversity_rerank(candidates: pd.DataFrame, top_k: int,
+                      diversity_penalty: float = DIVERSITY_REPEAT_PENALTY) -> pd.DataFrame:
+    """Soft diversity-aware re-ranking after grounded scoring.
+
+    Relevance remains primary. Repeated categories receive a small deterministic
+    penalty so a single category does not dominate when comparable alternatives
+    exist, but the method does not force strict 4/4/4 outputs.
+    """
+    if candidates is None or candidates.empty or top_k <= 0:
+        return pd.DataFrame()
+
+    remaining = candidates.copy().reset_index(drop=True)
+    score_col = "ranking_score" if "ranking_score" in remaining.columns else "recommendation_score"
+    selected = []
+    category_counts = {}
+
+    while len(selected) < top_k and not remaining.empty:
+        choices = []
+        for idx, row in remaining.iterrows():
+            category = str(row.get("requested_category", row.get("place_type", "unknown")))
+            repeats = category_counts.get(category, 0)
+            raw_score = float(row.get(score_col, 0.0) or 0.0)
+            adjusted_score = raw_score - diversity_penalty * repeats
+            choices.append((adjusted_score, raw_score, str(row.get("name", "")), idx))
+        choices.sort(key=lambda x: (-x[0], -x[1], x[2]))
+        adjusted_score, _, _, chosen_idx = choices[0]
+        chosen = remaining.loc[chosen_idx].to_dict()
+        chosen["diversity_adjusted_score"] = float(max(0.0, min(1.0, adjusted_score)))
+        selected.append(chosen)
+        category = str(chosen.get("requested_category", chosen.get("place_type", "unknown")))
+        category_counts[category] = category_counts.get(category, 0) + 1
+        remaining = remaining.drop(index=chosen_idx).reset_index(drop=True)
+
+    result = pd.DataFrame(selected).reset_index(drop=True)
+    if not result.empty:
+        result["final_rank"] = range(1, len(result) + 1)
+    return result
 
 
-def fetch_ml_recommendations(city, interests, trip_month, top_k=10, require_accessibility=False,
-                             budget=None, days=1):
+def fetch_ml_recommendations(city, interests, trip_month, top_k=10,
+                              require_accessibility=False, budget=None,
+                              days=3, transport_mode="Driving / Taxi"):
     """Retrieve live grounded venues and rank them with contextual evidence.
 
     KAPSARC city and national-sector signals are combined as contextual features;
@@ -947,17 +980,34 @@ def fetch_ml_recommendations(city, interests, trip_month, top_k=10, require_acce
         candidates["distance_km_center"] = candidates.apply(
             lambda r: _haversine_km(r["latitude"], r["longitude"], center[0], center[1]), axis=1
         )
-        candidates["distance_fit"] = 1.0 - _minmax01(candidates["distance_km_center"])
+        candidates["estimated_travel_minutes_from_center"] = candidates["distance_km_center"].map(
+            lambda d: estimate_travel_minutes_from_center(d, transport_mode)
+        )
+        candidates["distance_fit"] = candidates["distance_km_center"].map(
+            lambda d: calculate_transport_fit(d, transport_mode)
+        )
     else:
         candidates["distance_km_center"] = np.nan
-        candidates["distance_fit"] = np.nan
+        candidates["estimated_travel_minutes_from_center"] = np.nan
+        candidates["distance_fit"] = 0.5
 
-    candidates["opening_hours_raw"] = candidates["opening_hours"]
-    candidates["place_type"] = candidates["requested_category"].str.rstrip("s")
-    candidates["estimated_cost"] = candidates["place_type"].map(CATEGORY_COST_ESTIMATE_SAR).fillna(50.0)
+    # Cost is intentionally a category-level estimate unless the upstream source
+    # provides a verified venue price. It is used to prefer places that fit the
+    # user's budget, while the itinerary applies the actual hard trip-level cap.
+    candidates["estimated_cost"] = candidates["requested_category"].map({
+        "attractions": CATEGORY_COST_ESTIMATE_SAR["attraction"],
+        "restaurants": CATEGORY_COST_ESTIMATE_SAR["restaurant"],
+        "cafes": CATEGORY_COST_ESTIMATE_SAR["cafe"],
+    })
     candidates["cost_is_estimate"] = True
-    candidates = _apply_recommendation_scores(candidates, budget, days)
-    candidates["ranking_score"] = candidates["recommendation_score"]
+    candidates["budget_fit"] = candidates["estimated_cost"].apply(
+        lambda cost: calculate_budget_score(cost, budget, days=days)
+    )
+    per_stop_allowance = estimate_per_stop_budget_allowance(budget, days)
+    candidates["budget_difference"] = candidates["estimated_cost"] - per_stop_allowance
+    candidates["cost_estimate_basis"] = "category-level estimated cost; not a verified venue price"
+    candidates["opening_hours_raw"] = candidates["opening_hours"]
+    candidates["ranking_score"] = candidates.apply(_weighted_score, axis=1)
     candidates = candidates.sort_values(
         ["ranking_score", "place_quality", "name"],
         ascending=[False, False, True],
@@ -966,6 +1016,13 @@ def fetch_ml_recommendations(city, interests, trip_month, top_k=10, require_acce
     ranked = _diversity_rerank(candidates, top_k)
 
     ranked["place_type"] = ranked["requested_category"].str.rstrip("s")
+    ranked["recommendation_score"] = ranked["ranking_score"]
+    ranked["ranking_score"] = ranked["ranking_score"].round(4)
+    ranked["budget_fit"] = ranked["budget_fit"].round(4)
+    ranked["rank"] = range(1, len(ranked) + 1)
+    ranked["budget_status"] = ranked["budget_fit"].apply(
+        lambda x: "Good fit" if float(x) >= 0.8 else ("Within budget" if float(x) >= 0.5 else "Over budget")
+    )
     ranked["popularity_score"] = ranked["place_quality"]  # legacy response field only; not a rating
     ranked["distance_score"] = ranked["distance_fit"]
     ranked["city"] = city
@@ -1030,7 +1087,7 @@ def predict_next_month_city_demand(city: str):
 
 def recommend_places(city, interests, budget=None, features_df=None, top_n=10,
                       require_accessibility=False, excluded_places=None, trip_month=None,
-                      days=1):
+                      days=3, transport_mode="Driving / Taxi"):
     interest_list = _normalize_interests(interests)
     excluded_places = set(excluded_places or [])
     trip_month = int(trip_month or pd.Timestamp.now().month)
@@ -1044,14 +1101,16 @@ def recommend_places(city, interests, budget=None, features_df=None, top_n=10,
         require_accessibility=require_accessibility,
         budget=budget,
         days=days,
+        transport_mode=transport_mode,
     )
     if ml_df is not None and not ml_df.empty:
         if excluded_places:
             ml_df = ml_df[~ml_df["name"].isin(excluded_places)]
         backfilled = _backfill_local_fields(ml_df, city, features_df)
-        backfilled = _apply_recommendation_scores(backfilled, budget, days)
-        allowed_categories = list(map_interests_to_categories(interest_list))
-        return _balance_categories(backfilled, allowed_categories, top_n, score_col="recommendation_score")
+        result = _diversity_rerank(backfilled.sort_values("recommendation_score", ascending=False), top_n)
+        result = result.reset_index(drop=True)
+        result["rank"] = range(1, len(result) + 1)
+        return result
 
     # --- 2) Local static fallback when the live Places API is unavailable ---
     if features_df is None or city not in LOCAL_DATA_CITIES:
@@ -1086,12 +1145,56 @@ def recommend_places(city, interests, budget=None, features_df=None, top_n=10,
     places["preference_match"] = places.apply(
         lambda row: interest_match_score(row, interest_list), axis=1
     )
-    # Static popularity_score is not a user rating; keep it as a small fallback
-    # context term only, with preference and distance dominating.
-    places["place_quality"] = pd.to_numeric(places.get("popularity_score"), errors="coerce").fillna(0.5).clip(0, 1)
-    places["regional_demand"] = 0.5
-    places["seasonality"] = 0.5
-    places["distance_fit"] = pd.to_numeric(places.get("distance_score"), errors="coerce").fillna(0.5).clip(0, 1)
+    places["place_group"] = places["requested_category"].map(_canonical_place_group)
+    if "place_quality" not in places.columns:
+        places["place_quality"] = pd.to_numeric(places.get("popularity_score", 0.5), errors="coerce").fillna(0.5).clip(0, 1)
+
+    artifacts = _load_ml_artifacts()
+    if artifacts is not None:
+        comps = places.apply(lambda r: _regional_demand_components(artifacts, _normalize_text(city), r["place_group"]), axis=1)
+        places["regional_demand"] = [x[0] for x in comps]
+        places["city_demand_score"] = [x[1] for x in comps]
+        places["sector_demand_score"] = [x[2] for x in comps]
+        places["regional_demand_source"] = [x[3] for x in comps]
+        seasonality, seasonality_source = _seasonality_score(artifacts, city, trip_month)
+        places["seasonality"] = seasonality
+        places["seasonality_source"] = seasonality_source
+    else:
+        places["regional_demand"] = 0.5
+        places["seasonality"] = 0.5
+        places["regional_demand_source"] = "neutral_fallback"
+        places["seasonality_source"] = "neutral_fallback"
+
+    center = CITY_CENTERS.get(city)
+    if center is not None:
+        places["distance_km_center"] = places.apply(
+            lambda r: _haversine_km(r.get("latitude"), r.get("longitude"), center[0], center[1]), axis=1
+        )
+        places["estimated_travel_minutes_from_center"] = places["distance_km_center"].map(
+            lambda d: estimate_travel_minutes_from_center(d, transport_mode)
+        )
+        places["distance_fit"] = places["distance_km_center"].map(
+            lambda d: calculate_transport_fit(d, transport_mode)
+        )
+    else:
+        places["distance_km_center"] = np.nan
+        places["estimated_travel_minutes_from_center"] = np.nan
+        places["distance_fit"] = 0.5
+
+    category_cost = places["place_type"].map(CATEGORY_COST_ESTIMATE_SAR)
+    places["estimated_cost"] = pd.to_numeric(places.get("estimated_cost"), errors="coerce").fillna(category_cost).fillna(50.0)
+    places["budget_fit"] = places["estimated_cost"].apply(
+        lambda cost: calculate_budget_score(cost, budget, days=days)
+    )
+    places["budget_difference"] = places["estimated_cost"] - estimate_per_stop_budget_allowance(budget, days)
+    places["cost_estimate_basis"] = "category-level estimated cost; not a verified venue price"
+    places["ranking_score"] = places.apply(_weighted_score, axis=1).clip(0, 1)
+    places["recommendation_score"] = places["ranking_score"]
+    places = places.sort_values("recommendation_score", ascending=False)
+    places["rank"] = range(1, len(places) + 1)
+    places["budget_status"] = places["budget_fit"].apply(
+        lambda x: "Good fit" if float(x) >= 0.8 else ("Within budget" if float(x) >= 0.5 else "Budget constrained")
+    )
     places["_source"] = "local_dataset_fallback"
     places["source"] = "Bundled Geoapify/OpenStreetMap fallback dataset"
     places["source_retrieved_at_utc"] = None
@@ -1102,8 +1205,7 @@ def recommend_places(city, interests, budget=None, features_df=None, top_n=10,
         CATEGORY_VISIT_DURATION_HOURS
     ).fillna(1.5)
     places["total_time_hours"] = places["visit_duration_hours"]
-    places = _apply_recommendation_scores(places, budget, days)
-    return _balance_categories(places, allowed_categories, top_n, score_col="recommendation_score")
+    return _diversity_rerank(places, top_n)
 
 
 def baseline_recommend_places(city, features_df, top_n=10):
@@ -1153,15 +1255,64 @@ def calculate_interest_score(place_interests, user_interests):
     return min(1.0, matches / len(user_interests))
 
 
-def calculate_budget_score(estimated_cost, budget):
-    if budget is None or pd.isna(budget) or budget <= 0:
+def estimate_per_stop_budget_allowance(budget, days, stops_per_day=EXPECTED_STOPS_PER_DAY):
+    try:
+        total_budget = float(budget)
+        trip_days = int(days)
+    except (TypeError, ValueError):
+        return float("nan")
+    if total_budget <= 0 or trip_days <= 0:
+        return float("nan")
+    return total_budget / max(trip_days * int(stops_per_day), 1)
+
+
+def calculate_budget_score(estimated_cost, budget, days=3, stops_per_day=EXPECTED_STOPS_PER_DAY):
+    """Estimated Budget Fit in [0, 1] using category-level estimated costs.
+
+    The score measures affordability per planned stop. It does not reward a
+    traveler for having a very large budget once a venue is already affordable.
+    """
+    try:
+        cost = float(estimated_cost)
+    except (TypeError, ValueError):
         return 0.5
-    if pd.isna(estimated_cost):
+    allowance = estimate_per_stop_budget_allowance(budget, days, stops_per_day)
+    if not np.isfinite(cost) or not np.isfinite(allowance) or cost <= 0 or allowance <= 0:
         return 0.5
-    if estimated_cost <= budget:
-        return 1.0
-    overage_ratio = (estimated_cost - budget) / budget
-    return max(0.0, 1.0 - overage_ratio)
+    return float(max(0.0, min(1.0, allowance / cost)))
+
+
+def budget_constraint_status(estimated_costs, budget, days, stops_per_day=EXPECTED_STOPS_PER_DAY):
+    allowance = estimate_per_stop_budget_allowance(budget, days, stops_per_day)
+    if not np.isfinite(allowance):
+        return "unknown"
+    if isinstance(estimated_costs, pd.DataFrame):
+        costs = pd.to_numeric(estimated_costs.get("estimated_cost"), errors="coerce").dropna()
+    else:
+        costs = pd.to_numeric(pd.Series(estimated_costs), errors="coerce").dropna()
+    costs = costs[costs > 0]
+    if costs.empty:
+        return "unknown"
+    if allowance >= float(costs.max()):
+        return "non_binding"
+    if allowance < float(costs.min()):
+        return "binding"
+    return "partially_binding"
+
+
+
+def calculate_budget_fit(estimated_cost, budget, days=3, stops_per_day=EXPECTED_STOPS_PER_DAY):
+    """Return affordability against an estimated per-stop trip allowance."""
+    return calculate_budget_score(estimated_cost, budget, days=days, stops_per_day=stops_per_day)
+
+
+def _apply_recommendation_scores(frame: pd.DataFrame, budget, days) -> pd.DataFrame:
+    scored = frame.copy()
+    scored["budget_fit"] = scored.apply(
+        lambda row: calculate_budget_score(row.get("estimated_cost"), budget, days=days), axis=1
+    )
+    scored["recommendation_score"] = scored.apply(_weighted_score, axis=1)
+    return scored
 
 
 def _backfill_local_fields(ml_df, city, features_df):
