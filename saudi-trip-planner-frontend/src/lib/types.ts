@@ -83,8 +83,9 @@ export interface TripMetadata {
   estimated_stop_capacity?: number;
   estimated_per_stop_allowance?: number;
   budget_pacing_method?: string;
-  budget_cost_basis?: string;
-  distance_fit_basis?: string;
+  maximum_modeled_activity_cost?: number;
+  budget_above_modeled_capacity?: boolean;
+  maximum_modeled_activity_cost_description?: string;
   [key: string]: unknown;
 }
 

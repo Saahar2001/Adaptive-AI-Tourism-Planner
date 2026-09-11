@@ -388,6 +388,10 @@ def plan_trip(req: PlanTripRequest):
     artifacts = eng._load_ml_artifacts()
     metadata = artifacts.get("metadata", {}) if artifacts else {}
     days_with_stops = int(itinerary["day"].nunique()) if (itinerary is not None and not itinerary.empty and "day" in itinerary.columns) else 0
+    max_category_cost = max(eng.CATEGORY_COST_ESTIMATE_SAR.values()) if hasattr(eng, "CATEGORY_COST_ESTIMATE_SAR") else 80.0
+    maximum_modeled_activity_cost = float(req.days * eng.EXPECTED_STOPS_PER_DAY * max_category_cost)
+    budget_above_modeled_capacity = bool(float(req.budget) > maximum_modeled_activity_cost) if req.budget else False
+
     return {
         "places": [_place_to_json(r, city=req.city) for _, r in recommendations.iterrows()],
         "itinerary": [_stop_to_json(r, city=req.city) for _, r in itinerary.iterrows()] if itinerary is not None and not itinerary.empty else [],
@@ -413,6 +417,9 @@ def plan_trip(req: PlanTripRequest):
             "budget_pacing_method": "cumulative_proportional_day_ceiling",
             "scheduled_stops": int(len(itinerary) if itinerary is not None and not itinerary.empty else 0),
             "estimated_stop_capacity": int(req.days * eng.EXPECTED_STOPS_PER_DAY),
+            "maximum_modeled_activity_cost": round(maximum_modeled_activity_cost, 2),
+            "budget_above_modeled_capacity": budget_above_modeled_capacity,
+            "maximum_modeled_activity_cost_description": "Maximum modeled activity-cost capacity under current category estimates",
             "budget_cost_basis": "category-level estimated costs; not verified venue prices",
             "distance_fit_basis": "transport-aware estimated travel time using Haversine × road factor",
             "ranking": {

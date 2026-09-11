@@ -150,8 +150,8 @@ export default function Results() {
       <main className="max-w-content mx-auto px-6 py-8">
         {/* Trip Overview Chips */}
         <div className="flex flex-wrap items-center gap-3 text-sm text-ink-700 font-body">
-          <span className="bg-white/80 border border-ink-900/10 px-3 py-1.5 rounded-full flex items-center gap-1.5">
-            <DollarSign className="w-4 h-4 text-palm-700" /> Budget {prefs.budget} SAR
+          <span className="bg-white/80 border border-ink-900/10 px-3 py-1.5 rounded-full flex items-center gap-1.5" title="Maximum activity budget for planned venues and dining">
+            <DollarSign className="w-4 h-4 text-palm-700" /> Max Activity Budget {prefs.budget} SAR
           </span>
           <span className="bg-white/80 border border-ink-900/10 px-3 py-1.5 rounded-full flex items-center gap-1.5">
             <Calendar className="w-4 h-4 text-palm-700" /> {prefs.days} Days
@@ -168,56 +168,68 @@ export default function Results() {
 
         {/* Budget and itinerary feasibility summary */}
         {result.metadata && (
-          <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-            {typeof result.metadata.estimated_total_cost === "number" && (
-              <div className="bg-white/80 border border-ink-900/10 rounded-xl p-3">
-                <p className="text-[10px] uppercase tracking-wide text-ink-700/50">Estimated Trip Cost</p>
-                <p className="text-lg font-semibold text-ink-900 mt-1">
-                  {result.metadata.estimated_total_cost.toFixed(0)} SAR
-                </p>
-              </div>
-            )}
-            {typeof result.metadata.remaining_budget === "number" && (
-              <div className="bg-white/80 border border-ink-900/10 rounded-xl p-3">
-                <p className="text-[10px] uppercase tracking-wide text-ink-700/50">Remaining Budget</p>
-                <p className="text-lg font-semibold text-ink-900 mt-1">
-                  {result.metadata.remaining_budget.toFixed(0)} SAR
-                </p>
-              </div>
-            )}
-            {typeof result.metadata.budget_utilization_pct === "number" && (
-              <div className="bg-white/80 border border-ink-900/10 rounded-xl p-3">
-                <p className="text-[10px] uppercase tracking-wide text-ink-700/50">Budget Usage</p>
-                <p className="text-lg font-semibold text-ink-900 mt-1">
-                  {result.metadata.budget_utilization_pct.toFixed(0)}%
-                </p>
-              </div>
-            )}
-            {result.metadata.budget_constraint_status && (
-              <div className="bg-white/80 border border-ink-900/10 rounded-xl p-3">
-                <p className="text-[10px] uppercase tracking-wide text-ink-700/50">Budget Constraint</p>
-                <p className="text-sm font-semibold text-palm-700 mt-1 capitalize">
-                  {String(result.metadata.budget_constraint_status).replace(/_/g, " ")}
+          <div className="mt-4 space-y-2.5">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {typeof result.metadata.estimated_total_cost === "number" && (
+                <div className="bg-white/80 border border-ink-900/10 rounded-xl p-3">
+                  <p className="text-[10px] uppercase tracking-wide text-ink-700/50">Estimated Trip Cost</p>
+                  <p className="text-lg font-semibold text-ink-900 mt-1">
+                    {result.metadata.estimated_total_cost.toFixed(0)} SAR
+                  </p>
+                </div>
+              )}
+              {typeof result.metadata.remaining_budget === "number" && (
+                <div className="bg-white/80 border border-ink-900/10 rounded-xl p-3">
+                  <p className="text-[10px] uppercase tracking-wide text-ink-700/50">Remaining Budget</p>
+                  <p className="text-lg font-semibold text-ink-900 mt-1">
+                    {result.metadata.remaining_budget.toFixed(0)} SAR
+                  </p>
+                </div>
+              )}
+              {typeof result.metadata.budget_utilization_pct === "number" && (
+                <div className="bg-white/80 border border-ink-900/10 rounded-xl p-3">
+                  <p className="text-[10px] uppercase tracking-wide text-ink-700/50">Budget Usage</p>
+                  <p className="text-lg font-semibold text-ink-900 mt-1">
+                    {result.metadata.budget_utilization_pct.toFixed(0)}%
+                  </p>
+                </div>
+              )}
+              {result.metadata.budget_constraint_status && (
+                <div className="bg-white/80 border border-ink-900/10 rounded-xl p-3">
+                  <p className="text-[10px] uppercase tracking-wide text-ink-700/50">Budget Constraint</p>
+                  <p className="text-sm font-semibold text-palm-700 mt-1 capitalize">
+                    {String(result.metadata.budget_constraint_status).replace(/_/g, " ")}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {result.metadata.budget_constraint_status === "non_binding" && (
+              <div className="p-3 rounded-xl bg-palm-50/70 border border-palm-600/15 text-xs text-palm-800 font-body flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-palm-700 shrink-0 mt-0.5" />
+                <p>
+                  Your budget is above the estimated cost needed for the highest-ranked feasible itinerary. The planner does not increase spending artificially.
                 </p>
               </div>
             )}
           </div>
         )}
 
-        {/* Informative non-alarming warnings */}
-        {result.warnings && result.warnings.length > 0 && (
-          <div className="mt-4 p-4 rounded-xl bg-amber-50/80 border border-amber-200/70 space-y-1.5 text-xs text-amber-900 font-body">
-            <div className="flex items-center gap-1.5 font-semibold text-amber-800">
-              <AlertCircle className="w-3.5 h-3.5" />
-              <span>Grounded Tourism Notes</span>
-            </div>
-            {result.warnings.map((warning, index) => (
-              <p key={index} className="text-amber-800/90 pl-5">
-                • {warning}
-              </p>
-            ))}
+        {/* Informative non-alarming warnings & scope notice */}
+        <div className="mt-4 p-4 rounded-xl bg-amber-50/80 border border-amber-200/70 space-y-1.5 text-xs text-amber-900 font-body">
+          <div className="flex items-center gap-1.5 font-semibold text-amber-800">
+            <AlertCircle className="w-3.5 h-3.5" />
+            <span>Grounded Tourism Notes</span>
           </div>
-        )}
+          <p className="text-amber-800/90 pl-5">
+            • Estimated costs cover planned venues/activities only. Accommodation, shopping and live transport fares are not included.
+          </p>
+          {result.warnings && result.warnings.map((warning, index) => (
+            <p key={index} className="text-amber-800/90 pl-5">
+              • {warning}
+            </p>
+          ))}
+        </div>
 
         {/* Favorite Places Section (near top after trip summary) */}
         {cityFavorites.length > 0 && (
