@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Heart, MapPin, ImageOff, CheckCircle2, HelpCircle } from "lucide-react";
+import { Heart, MapPin, CheckCircle2, HelpCircle, ChevronDown, ChevronUp } from "lucide-react";
 import type { Place } from "../lib/types";
 import { FavoritesService } from "../lib/favorites";
 
@@ -8,6 +8,23 @@ const CATEGORY_ICON: Record<string, string> = {
   restaurants: "🍽️",
   cafes: "☕",
 };
+
+
+function ScoreRow({ label, value }: { label: string; value?: number }) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const percent = Math.round(Math.max(0, Math.min(1, value)) * 100);
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-[10px] text-ink-700/75">
+        <span>{label}</span>
+        <span className="font-semibold">{percent}%</span>
+      </div>
+      <div className="h-1.5 rounded-full bg-sand-200 overflow-hidden">
+        <div className="h-full rounded-full bg-palm-600" style={{ width: `${percent}%` }} />
+      </div>
+    </div>
+  );
+}
 
 interface PlaceCardProps {
   place: Place;
@@ -124,7 +141,12 @@ export default function PlaceCard({ place, isSelected = false, onSelect, city }:
 
         {/* Badges footer */}
         <div className="mt-3 pt-2.5 border-t border-ink-900/5 flex items-center justify-between text-[11px] text-ink-700/60">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {typeof place.final_rank === "number" && (
+              <span className="text-[10px] bg-palm-50 px-1.5 py-0.5 rounded text-palm-700 font-semibold border border-palm-600/10">
+                #{place.final_rank} Ranked
+              </span>
+            )}
             {place.accessibility_status === "yes" ? (
               <span className="flex items-center gap-1 text-palm-700 font-medium" title="Accessibility verified">
                 <CheckCircle2 className="w-3 h-3" /> Accessible
@@ -135,33 +157,47 @@ export default function PlaceCard({ place, isSelected = false, onSelect, city }:
               </span>
             )}
           </div>
-          {typeof place.recommendation_score === "number" && (
-            <span className="text-[10px] bg-sand-200/50 px-1.5 py-0.5 rounded text-ink-700">
-              Score {Math.round(place.recommendation_score * 100)}%
-            </span>
+          <div className="flex items-center gap-1.5">
+            {typeof place.budget_fit === "number" && (
+              <span className="text-[10px] bg-sand-200/50 px-1.5 py-0.5 rounded text-ink-700">
+                Budget {Math.round(place.budget_fit * 100)}%
+              </span>
+            )}
+            {typeof place.recommendation_score === "number" && (
+              <span className="text-[10px] bg-sand-200/50 px-1.5 py-0.5 rounded text-ink-700">
+                Score {Math.round(place.recommendation_score * 100)}/100
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-2 pt-2 border-t border-ink-900/5">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setShowWhy((previous) => !previous);
+            }}
+            className="w-full flex items-center justify-between text-[11px] font-semibold text-palm-700 hover:text-palm-800"
+          >
+            <span>Why recommended?</span>
+            {showWhy ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+
+          {showWhy && (
+            <div className="mt-3 space-y-2" onClick={(event) => event.stopPropagation()}>
+              <ScoreRow label="Preference" value={place.preference_match} />
+              <ScoreRow label="Regional Demand" value={place.regional_demand} />
+              <ScoreRow label="Seasonality" value={place.seasonality} />
+              <ScoreRow label="Travel Fit" value={place.distance_fit} />
+              <ScoreRow label="Estimated Budget Fit" value={place.budget_fit} />
+              <ScoreRow label="Data Quality" value={place.place_quality} />
+              <p className="text-[9px] leading-relaxed text-ink-700/55 pt-1">
+                Budget fit uses category-level estimated costs, not verified venue prices.
+              </p>
+            </div>
           )}
         </div>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            setShowWhy((value) => !value);
-          }}
-          className="mt-3 text-left text-[11px] font-semibold text-palm-700 hover:text-palm-800"
-          aria-expanded={showWhy}
-        >
-          {showWhy ? "Hide recommendation details" : "Why recommended?"}
-        </button>
-        {showWhy && (
-          <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-lg bg-sand-50 border border-ink-900/5 p-2.5 text-[10px] text-ink-700">
-            <span>Preference <strong>{Math.round((place.preference_match ?? 0) * 100)}%</strong></span>
-            <span>Regional Demand <strong>{Math.round((place.regional_demand ?? 0) * 100)}%</strong></span>
-            <span>Seasonality <strong>{Math.round((place.seasonality ?? 0) * 100)}%</strong></span>
-            <span>Distance <strong>{Math.round((place.distance_fit ?? 0) * 100)}%</strong></span>
-            <span className="col-span-2">Estimated Budget Fit <strong>{Math.round((place.budget_fit ?? 0) * 100)}%</strong></span>
-            <span className="col-span-2 text-ink-700/60">Budget fit uses category-level estimated costs.</span>
-          </div>
-        )}
       </div>
     </div>
   );

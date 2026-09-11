@@ -162,14 +162,41 @@ export default function Results() {
           )}
         </div>
 
+        {/* Budget and itinerary feasibility summary */}
         {result.metadata && (
-          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-700/75">
-            <span className="font-semibold text-ink-900">
-              Estimated trip cost: {result.metadata.estimated_total_cost ?? 0} SAR
-            </span>
-            <span>Remaining estimated budget: {result.metadata.remaining_budget ?? prefs.budget} SAR</span>
-            <span>Budget status: {result.metadata.budget_constraint_status?.replace("_", " ")}</span>
-            <span className="text-ink-700/60">Budget fit uses category-level estimated costs.</span>
+          <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+            {typeof result.metadata.estimated_total_cost === "number" && (
+              <div className="bg-white/80 border border-ink-900/10 rounded-xl p-3">
+                <p className="text-[10px] uppercase tracking-wide text-ink-700/50">Estimated Trip Cost</p>
+                <p className="text-lg font-semibold text-ink-900 mt-1">
+                  {result.metadata.estimated_total_cost.toFixed(0)} SAR
+                </p>
+              </div>
+            )}
+            {typeof result.metadata.remaining_budget === "number" && (
+              <div className="bg-white/80 border border-ink-900/10 rounded-xl p-3">
+                <p className="text-[10px] uppercase tracking-wide text-ink-700/50">Remaining Budget</p>
+                <p className="text-lg font-semibold text-ink-900 mt-1">
+                  {result.metadata.remaining_budget.toFixed(0)} SAR
+                </p>
+              </div>
+            )}
+            {typeof result.metadata.budget_utilization_pct === "number" && (
+              <div className="bg-white/80 border border-ink-900/10 rounded-xl p-3">
+                <p className="text-[10px] uppercase tracking-wide text-ink-700/50">Budget Usage</p>
+                <p className="text-lg font-semibold text-ink-900 mt-1">
+                  {result.metadata.budget_utilization_pct.toFixed(0)}%
+                </p>
+              </div>
+            )}
+            {result.metadata.budget_constraint_status && (
+              <div className="bg-white/80 border border-ink-900/10 rounded-xl p-3">
+                <p className="text-[10px] uppercase tracking-wide text-ink-700/50">Budget Constraint</p>
+                <p className="text-sm font-semibold text-palm-700 mt-1 capitalize">
+                  {String(result.metadata.budget_constraint_status).replace(/_/g, " ")}
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -420,7 +447,7 @@ export default function Results() {
                     Ranked Recommendations
                   </h2>
                   <p className="text-xs text-ink-700/70">
-                    Ranked by preference, contextual demand, seasonality, distance, quality, and estimated budget fit
+                    Ranked by preferences, demand, seasonality, travel fit, data quality, and estimated budget fit
                   </p>
                 </div>
               </div>

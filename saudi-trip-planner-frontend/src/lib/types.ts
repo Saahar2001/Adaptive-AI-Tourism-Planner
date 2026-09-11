@@ -20,10 +20,21 @@ export interface Place {
   estimated_cost?: number;
   cost_is_estimate?: boolean;
   recommendation_score?: number;
+  ranking_score?: number;
+  rank?: number;
   preference_match?: number;
+  budget_fit?: number;
+  budget_difference?: number;
+  budget_status?: string;
   regional_demand?: number;
   seasonality?: number;
   distance_km_center?: number;
+  distance_fit?: number;
+  place_quality?: number;
+  estimated_travel_minutes_from_center?: number;
+  diversity_adjusted_score?: number;
+  final_rank?: number;
+  cost_estimate_basis?: string;
   accessibility_status?: "yes" | "no" | "unknown" | string;
   address?: string;
   source?: string;
@@ -61,6 +72,14 @@ export interface TripMetadata {
   route_method?: string;
   regional_context?: string;
   forecast_model_used_for_ranking?: boolean;
+  budget_constraint_status?: "binding" | "partially_binding" | "non_binding" | "unknown";
+  estimated_total_cost?: number;
+  remaining_budget?: number;
+  budget_utilization_pct?: number;
+  scheduled_stops?: number;
+  estimated_stop_capacity?: number;
+  budget_cost_basis?: string;
+  distance_fit_basis?: string;
   [key: string]: unknown;
 }
 
