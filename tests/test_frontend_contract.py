@@ -130,3 +130,16 @@ def test_why_recommended_remains_present():
     assert "Why recommended?" in src
     assert "Estimated Budget Fit" in src
     assert "Data Quality" in src
+
+
+def test_plan_budget_label_clarifies_maximum_activity_budget():
+    src = text("pages/Plan.tsx")
+    assert "Maximum Activity Budget" in src
+    assert "Accommodation, shopping" in src
+
+
+def test_results_non_binding_budget_explanation_and_scope_notice():
+    src = text("pages/Results.tsx")
+    assert "Max Activity Budget" in src
+    assert "Your budget is above the estimated cost needed for the highest-ranked feasible itinerary" in src
+    assert "Accommodation, shopping and live transport fares are not included" in src

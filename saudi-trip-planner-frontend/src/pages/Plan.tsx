@@ -96,7 +96,10 @@ export default function Plan() {
 
             <div className="grid grid-cols-2 gap-6">
               <div>
-                <label className="block font-body font-medium text-ink-900 mb-2">💰 Budget (SAR)</label>
+                <label className="block font-body font-medium text-ink-900 mb-1">💰 Maximum Activity Budget (SAR)</label>
+                <p className="text-[11px] text-ink-700/65 font-body mb-2 leading-tight">
+                  Covers planned venues, dining & cafés. Accommodation, shopping, and transport fares not included.
+                </p>
                 <input
                   type="number"
                   min={1}
