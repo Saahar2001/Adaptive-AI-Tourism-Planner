@@ -64,19 +64,20 @@ The architecture maintains a strict, mathematically grounded separation between 
 │   1. CITY DEMAND FORECASTING      │   2. HYBRID RECOMMENDATION RANKING  │
 │   (Macro Econometric Model)       │   (Venue Selection & Diversity)     │
 │                                   │                                     │
-│   • Extra Trees Regressor         │   • Preference Match: 45%           │
-│   • Target: 1-month-ahead city    │   • Distance Fit:     20%           │
-│     total POS transaction value   │   • Regional Demand:  15%           │
-│   • Evaluated on holdout &        │   • Seasonality:      10%           │
-│     rolling-origin folds          │   • Record Quality:   10%           │
-│   • DOES NOT rank venues          │   • Category-balanced interleaving  │
+│   • Extra Trees Regressor         │   • Preference Match: 40%           │
+│   • Target: 1-month-ahead city    │   • Estimated Budget Fit: 20%       │
+│     total POS transaction value   │   • Place / Data Quality: 10%       │
+│   • Evaluated on holdout &        │   • Regional Demand:  10%           │
+│     rolling-origin folds          │   • Seasonality:      10%           │
+│   • DOES NOT rank venues          │   • Travel Fit:       10%           │
+│                                   │   • Soft diversity-aware reranking  │
 └───────────────────────────────────┴─────────────────────────────────────┘
 ```
 
 ### 1. City Demand Forecasting
 - **Model:** Extra Trees Regressor (`n_estimators=300`, `min_samples_leaf=2`, `max_features=1.0`).
 - **Objective:** Forecasts one-month-ahead total Point-of-Sale (POS) transaction volume for Saudi cities using historical KAPSARC macroeconomic data.
-- **Validation Methodology:** Evaluated via rolling-origin time-series cross-validation across 6 sequential expansion splits and validated against an untouched out-of-time test holdout.
+- **Validation Methodology:** Evaluated via 3 rolling-origin validation folds (primary metric MAE) plus an untouched final 12-month holdout (July 2024 through June 2025).
 - **Verified Metrics (Untouched Final Holdout):**
   - **R² Score:** `0.9803`
   - **Mean Absolute Percentage Error (MAPE):** `6.88%`
@@ -89,18 +90,34 @@ The architecture maintains a strict, mathematically grounded separation between 
 > The Extra Trees model forecasts aggregate city-level economic demand. It does **not** score or rank individual restaurants, cafés, or attractions.
 
 ### 2. Hybrid Contextual Recommendation Ranking
-Candidate venues in the selected city are evaluated and scored using five transparent, grounded signals:
+Candidate venues in the selected city are evaluated and scored using six transparent, grounded signals (summing to 1.00):
 
-$$\text{Score} = 0.45 \cdot \text{Pref} + 0.20 \cdot \text{Dist} + 0.15 \cdot \text{Demand} + 0.10 \cdot \text{Season} + 0.10 \cdot \text{Quality}$$
+$$\text{Score} = 0.40 \cdot \text{Pref} + 0.20 \cdot \text{Budget} + 0.10 \cdot \text{Quality} + 0.10 \cdot \text{Demand} + 0.10 \cdot \text{Season} + 0.10 \cdot \text{Travel}$$
 
-1. **User Preference Match (45%):** Keyword overlap between traveler interests and venue categories/tags.
-2. **Distance Fit (20%):** Proximity penalty relative to the city geographic center.
-3. **Regional Demand Context (15%):** City POS transaction baseline combined with national tourism-sector transaction velocity from KAPSARC datasets.
-4. **Provincial Seasonality (10%):** Monthly hotel accommodation occupancy rates from official DataSaudi provincial indices.
-5. **Record Quality (10%):** Completeness and verification level of venue metadata (verified coordinates, address, accessibility).
+$$\begin{aligned}
+\text{Score} = &\; 0.40 \times \text{Preference Match} \\
+&+ 0.20 \times \text{Estimated Budget Fit} \\
+&+ 0.10 \times \text{Place Quality} \\
+&+ 0.10 \times \text{Regional Demand} \\
+&+ 0.10 \times \text{Seasonality} \\
+&+ 0.10 \times \text{Travel Fit}
+\end{aligned}$$
 
-**Diversity-Aware Re-ranking:**
-Following candidate scoring, the engine applies category-balanced round-robin interleaving across requested categories. This guarantees that attractions, restaurants, and cafés remain well-represented on multi-interest itineraries rather than allowing a single high-popularity category to displace other options.
+1. **User Preference Match (40%):** Keyword overlap between traveler interests and venue categories/tags.
+2. **Estimated Budget Fit (20%):** Evaluates how well a venue's estimated cost fits within the trip's per-stop budget allowance (`estimated_per_stop_allowance = budget / (days * EXPECTED_STOPS_PER_DAY)`). Category-level estimated costs are used (Café ≈ 35 SAR, Attraction ≈ 50 SAR, Restaurant ≈ 80 SAR); these are explicitly labeled as **estimates**, not live venue menus or verified venue prices.
+3. **Place / Data Quality (10%):** Completeness and verification level of venue metadata (verified coordinates, address, accessibility evidence). It is record/data quality, **not** a user rating.
+4. **Regional Demand Context (10%):** City POS transaction baseline combined with national tourism-sector transaction velocity from KAPSARC datasets.
+5. **Provincial Seasonality (10%):** Monthly hotel accommodation occupancy rates from official DataSaudi provincial indices.
+6. **Transport-Aware Travel Fit (10%):** Transport mode-aware (walking, public transit, driving) travel feasibility and distance fit relative to city center.
+
+**Constraints & Non-Ranking Parameters:**
+- **City is NOT a ranking weight:** City controls candidate filtering, city demand context, and geographic reference coordinates.
+- **Days are NOT a fake ranking weight:** Days directly determine expected trip capacity, candidate retrieval pool size (`top_n = max(12, days * 4)`), per-stop budget allowance, budget fit, and multi-day itinerary pacing.
+- **Accessibility is a hard evidence-based constraint:** When strict mode is requested, places without confirmed accessibility are excluded.
+- **Opening hours are constraints:** Enforced during itinerary scheduling when confirmed data exists.
+
+**Soft Diversity-Aware Re-ranking:**
+Following candidate scoring, the engine applies soft diversity-aware re-ranking with a deterministic category-repeat penalty (`DIVERSITY_REPEAT_PENALTY = 0.06`). The engine first computes the hybrid contextual ranking score, then applies the repeat penalty to subsequent venues in the same category during re-ranking. This prevents a single category from monopolizing results while preserving genuine relevance. It does **not** enforce a rigid round-robin, fixed quotas (e.g. 4 attractions / 4 restaurants / 4 cafes), or guaranteed equal category counts.
 
 > [!IMPORTANT]
 > The source datasets provide city-total POS transactions and national sector-total transactions as separate series. The system never fabricates an unobserved "city $\times$ sector" cross-product.
@@ -111,12 +128,12 @@ Following candidate scoring, the engine applies category-balanced round-robin in
 
 ```mermaid
 flowchart TD
-    A[User Preferences\nCity, Budget, Days, Interests, Month, Accessibility] --> B[Grounded Places Retrieval\nGeoapify / Verified Offline Snapshot]
-    B --> C[Hybrid Contextual Ranking\nPref 45% | Dist 20% | Demand 15% | Season 10% | Quality 10%]
-    C --> D[Diversity-Aware Re-ranking\nCategory-balanced round-robin across Attractions, Dining & Cafes]
-    D --> E[Constraint-Aware Itinerary Generator\nDaily budget pacing, operating hours, travel distance]
-    E --> F[Interactive Map & UI\nLeaflet pins, category tabs, flyTo card sync]
-    E --> G[Grounded AI Trip Assistant\nContext-injected assistant with rule fallback]
+    A["User Preferences<br/>City · Budget · Days · Interests · Month · Transport · Accessibility"] --> B["Grounded Places Retrieval<br/>Geoapify + Verified Offline Snapshot"]
+    B --> C["Hybrid Contextual Ranking<br/>Preference 40% · Budget 20% · Quality 10% · Demand 10% · Seasonality 10% · Travel 10%"]
+    C --> D["Soft Diversity-Aware Re-ranking<br/>Preserves relevance while limiting category dominance"]
+    D --> E["Constraint-Aware Itinerary<br/>Requested days · Trip budget · Daily time · Opening hours · Accessibility"]
+    E --> F["Interactive Map and UI<br/>Leaflet · Favorites · Ranked Results"]
+    E --> G["Grounded AI Trip Assistant<br/>Trip context + Safe fallback"]
 ```
 
 ---
@@ -140,19 +157,22 @@ flowchart TD
  [Backend API]
  FastAPI (Python 3.12, Uvicorn)
    │
-   ├── /plan-trip ────────────────────────┐
-   ├── /forecast/city-demand              ▼
-   ├── /api/dashboard/trending-places  [Hybrid Engine]
-   └── /assistant/chat                 ├── Feature Engineering (Pandas, NumPy)
-         │                             ├── Extra Trees Regressor (.joblib)
-         ▼                             ├── KAPSARC City & Sector Monthly Features
-   [Trip Assistant]                    ├── DataSaudi Provincial Seasonality
-   ├── Grounded Context Injector       ├── Places API + Curated Snapshot Cache
-   ├── Groq API (LLaMA-3) [Optional]   └── Safe Wikipedia/Wikimedia Image Resolver
-   ├── Anthropic Claude [Optional]        │
-   └── Deterministic Rule Engine          ▼
+   ├── GET  /health
+   ├── GET  /model-info
+   ├── POST /predict-demand
+   ├── POST /plan-trip ───────────────────┐
+   ├── GET  /api/dashboard/trending-places ▼
+   └── POST /assistant/chat            [Hybrid Engine]
+         │                             ├── Feature Engineering (Pandas, NumPy)
+         ▼                             ├── Extra Trees Regressor (.joblib)
+   [Trip Assistant]                    ├── KAPSARC City & Sector Monthly Features
+   ├── Grounded Context Injector       ├── DataSaudi Provincial Seasonality
+   ├── Groq API (LLaMA-3) [Optional]   ├── Places API + Curated Snapshot Cache
+   ├── Anthropic Claude [Optional]     └── Safe Wikipedia/Wikimedia Image Resolver
+   └── Deterministic Rule Engine          │
+                                       ▼
                                        [Itinerary Optimizer]
-                                       Route distance & pacing generator
+                                       Constraint-aware cumulative budget pacing
 ```
 
 ---
@@ -293,7 +313,7 @@ cd saudi-trip-planner-backend
 .\.venv\Scripts\python.exe -m compileall -q -x "\.venv" .
 ```
 
-*Status:* **36 passed** across unit, integration, and ML engine suites.
+*Status:* **49 passed** across unit, integration, ML engine, and itinerary days distribution suites.
 
 ### Run Root Contract Tests
 
@@ -302,7 +322,7 @@ cd saudi-trip-planner-backend
 .\saudi-trip-planner-backend\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-*Status:* **13 passed** verifying category chips, favorites mapping, details modal, and elimination of raw coordinate strings.
+*Status:* **18 passed** verifying requested day tabs, empty-day messaging, "Estimated travel" route labeling, category chips, favorites mapping, details modal, and elimination of raw coordinate/method strings.
 
 ### Build Frontend for Production
 
@@ -311,7 +331,7 @@ cd saudi-trip-planner-frontend
 npm run build
 ```
 
-*Status:* **Successful** (`dist/` bundle compiled in ~12s with zero TypeScript errors).
+*Status:* **Successful** (`dist/` bundle compiled in ~11s with zero TypeScript errors, 1914 modules transformed).
 
 ---
 

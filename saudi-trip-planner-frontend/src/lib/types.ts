@@ -77,7 +77,12 @@ export interface TripMetadata {
   remaining_budget?: number;
   budget_utilization_pct?: number;
   scheduled_stops?: number;
+  requested_days?: number;
+  days_with_scheduled_stops?: number;
+  max_stops_per_day?: number;
   estimated_stop_capacity?: number;
+  estimated_per_stop_allowance?: number;
+  budget_pacing_method?: string;
   budget_cost_basis?: string;
   distance_fit_basis?: string;
   [key: string]: unknown;

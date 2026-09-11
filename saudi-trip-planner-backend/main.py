@@ -387,11 +387,18 @@ def plan_trip(req: PlanTripRequest):
 
     artifacts = eng._load_ml_artifacts()
     metadata = artifacts.get("metadata", {}) if artifacts else {}
+    days_with_stops = int(itinerary["day"].nunique()) if (itinerary is not None and not itinerary.empty and "day" in itinerary.columns) else 0
     return {
         "places": [_place_to_json(r, city=req.city) for _, r in recommendations.iterrows()],
         "itinerary": [_stop_to_json(r, city=req.city) for _, r in itinerary.iterrows()] if itinerary is not None and not itinerary.empty else [],
         "warnings": warnings,
         "metadata": {
+            "city": req.city,
+            "days": req.days,
+            "budget": req.budget,
+            "requested_days": int(req.days),
+            "days_with_scheduled_stops": days_with_stops,
+            "max_stops_per_day": eng.EXPECTED_STOPS_PER_DAY,
             "trip_month": trip_month,
             "engine": "hybrid_context_ranker",
             "model_version": metadata.get("model_version"),
@@ -403,6 +410,7 @@ def plan_trip(req: PlanTripRequest):
             "estimated_total_cost": round(estimated_total_cost, 2),
             "remaining_budget": round(remaining_budget, 2),
             "budget_utilization_pct": round(budget_utilization_pct, 1),
+            "budget_pacing_method": "cumulative_proportional_day_ceiling",
             "scheduled_stops": int(len(itinerary) if itinerary is not None and not itinerary.empty else 0),
             "estimated_stop_capacity": int(req.days * eng.EXPECTED_STOPS_PER_DAY),
             "budget_cost_basis": "category-level estimated costs; not verified venue prices",
@@ -644,8 +652,10 @@ def model_info():
     metrics = artifacts.get("forecast_metrics") or {}
     return {
         "model_version": metadata.get("model_version"),
+        "active_ranking_weights": dict(eng.RANK_WEIGHTS),
         "recommendation_weights": dict(eng.RANK_WEIGHTS),
         "ranking_weights": dict(eng.RANK_WEIGHTS),
+        "artifact_recommendation_metadata": metadata.get("recommendation_context", {}),
         "budget_estimate_basis": "category-level estimated costs, not verified venue prices",
         "costs_are_category_estimates": True,
         "recommendation_context": {

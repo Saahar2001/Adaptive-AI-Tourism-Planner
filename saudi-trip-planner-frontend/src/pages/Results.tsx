@@ -64,13 +64,17 @@ export default function Results() {
     }
   }, [activeCategory, availableCategories]);
 
-  useEffect(() => {
-    if (result.itinerary.length > 0 && !result.itinerary.some((item) => item.day === activeDay)) {
-      setActiveDay(result.itinerary[0].day);
-    }
-  }, [activeDay, result.itinerary]);
+  const requestedDays = Math.max(1, Number(result.metadata?.requested_days ?? prefs.days ?? 1));
 
-  const day = result.itinerary.find((d) => d.day === activeDay) ?? result.itinerary[0];
+  useEffect(() => {
+    if (activeDay > requestedDays || activeDay < 1) {
+      setActiveDay(1);
+    }
+  }, [activeDay, requestedDays]);
+
+  const currentDayData = result.itinerary.find((d) => d.day === activeDay);
+  const currentDayStops = currentDayData?.stops ?? [];
+  const currentDayStopsCount = currentDayStops.length;
   const placesForCategory = result.places.filter((p) => p.category === activeCategory);
 
   // City-relevant favorites
@@ -306,20 +310,20 @@ export default function Results() {
           <div>
             {/* Day tabs */}
             <div className="flex items-center gap-2 border-b border-ink-900/10 mb-6 overflow-x-auto no-scrollbar">
-              {result.itinerary.map((d) => (
+              {Array.from({ length: requestedDays }, (_, i) => i + 1).map((dayNum) => (
                 <button
-                  key={d.day}
+                  key={dayNum}
                   onClick={() => {
-                    setActiveDay(d.day);
+                    setActiveDay(dayNum);
                     setSelectedPlace(null);
                   }}
                   className={`px-4 py-2.5 font-body text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap flex items-center gap-1.5 ${
-                    activeDay === d.day
+                    activeDay === dayNum
                       ? "border-palm-600 text-palm-700 font-semibold"
                       : "border-transparent text-ink-700/60 hover:text-ink-900"
                   }`}
                 >
-                  <Calendar className="w-3.5 h-3.5" /> Day {d.day}
+                  <Calendar className="w-3.5 h-3.5" /> Day {dayNum}
                 </button>
               ))}
             </div>
@@ -328,115 +332,129 @@ export default function Results() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h2 className="font-display font-medium text-lg text-ink-900">
-                  Day {activeDay} Schedule ({day?.stops.length || 0} stops)
+                  Day {activeDay} Schedule ({currentDayStopsCount} stops)
                 </h2>
                 <span className="text-xs text-ink-700/60 font-body">Click stop to center map</span>
               </div>
 
-              <ol className="space-y-3">
-                {day?.stops.map((stop, i) => {
-                  const isSelected = selectedPlace?.toLowerCase().trim() === stop.place.toLowerCase().trim();
-                  const isFav = FavoritesService.isFavorite(stop.place, prefs.city);
+              {currentDayStopsCount === 0 ? (
+                <div className="bg-white/80 border border-ink-900/10 rounded-xl p-6 text-center space-y-2">
+                  <p className="text-ink-700 font-body text-sm font-medium">
+                    No stops could be scheduled for this day under the current budget, time, or evidence constraints.
+                  </p>
+                  <p className="text-ink-700/60 font-body text-xs">
+                    Try increasing your budget or modifying interests to unlock additional activities.
+                  </p>
+                </div>
+              ) : (
+                <ol className="space-y-3">
+                  {currentDayStops.map((stop, i) => {
+                    const isSelected = selectedPlace?.toLowerCase().trim() === stop.place.toLowerCase().trim();
+                    const isFav = FavoritesService.isFavorite(stop.place, prefs.city);
 
-                  return (
-                    <li
-                      key={i}
-                      ref={(el) => {
-                        stopRefs.current[stop.place] = el;
-                      }}
-                      onClick={() => handleSelectPlace(stop.place)}
-                      className={`border rounded-xl p-4 transition-all duration-200 cursor-pointer ${
-                        isSelected
-                          ? "border-palm-600 ring-2 ring-palm-600/30 bg-palm-50/40 shadow-sm"
-                          : "border-ink-900/10 bg-white/70 hover:border-palm-600/60 hover:bg-white"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex items-start gap-3 flex-1">
-                          <div className="w-7 h-7 rounded-full bg-palm-600 text-sand-50 flex items-center justify-center font-body text-xs font-bold shrink-0 mt-0.5 shadow-xs">
-                            {i + 1}
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <p className="font-body font-semibold text-ink-900 text-base">
-                                {stop.place}
-                              </p>
-                              <span className="text-xs text-palm-700 capitalize font-medium bg-palm-50 px-2 py-0.5 rounded-full border border-palm-600/10">
-                                {stop.category}
-                              </span>
+                    return (
+                      <li
+                        key={i}
+                        ref={(el) => {
+                          stopRefs.current[stop.place] = el;
+                        }}
+                        onClick={() => handleSelectPlace(stop.place)}
+                        className={`border rounded-xl p-4 transition-all duration-200 cursor-pointer ${
+                          isSelected
+                            ? "border-palm-600 ring-2 ring-palm-600/30 bg-palm-50/40 shadow-sm"
+                            : "border-ink-900/10 bg-white/70 hover:border-palm-600/60 hover:bg-white"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3 flex-1">
+                            <div className="w-7 h-7 rounded-full bg-palm-600 text-sand-50 flex items-center justify-center font-body text-xs font-bold shrink-0 mt-0.5 shadow-xs">
+                              {i + 1}
                             </div>
-
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-700/75 mt-1">
-                              {stop.visit_duration_hours && (
-                                <span className="flex items-center gap-1">
-                                  <Clock className="w-3 h-3 text-ink-700/50" />
-                                  {stop.visit_duration_hours}h visit
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <p className="font-body font-semibold text-ink-900 text-base">
+                                  {stop.place}
+                                </p>
+                                <span className="text-xs text-palm-700 capitalize font-medium bg-palm-50 px-2 py-0.5 rounded-full border border-palm-600/10">
+                                  {stop.category}
                                 </span>
-                              )}
-                              {stop.travel_distance_km ? (
-                                <span>• {stop.travel_distance_km.toFixed(1)} km from prev</span>
-                              ) : null}
-                              {stop.route_method && (
-                                <span className="capitalize">• {stop.route_method}</span>
-                              )}
-                            </div>
+                              </div>
 
-                            {/* Verification badges */}
-                            <div className="flex items-center gap-3 text-[11px] text-ink-700/60 mt-2">
-                              <span>
-                                {stop.opening_hours_status && stop.opening_hours_status !== "unknown"
-                                  ? `Hours: ${stop.opening_hours_status}`
-                                  : "Opening hours unknown"}
-                              </span>
-                              <span>•</span>
-                              <span>
-                                {stop.accessibility_status === "yes"
-                                  ? "Accessibility verified"
-                                  : "Accessibility unknown"}
-                              </span>
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-700/75 mt-1">
+                                {stop.visit_duration_hours && (
+                                  <span className="flex items-center gap-1">
+                                    <Clock className="w-3 h-3 text-ink-700/50" />
+                                    {stop.visit_duration_hours}h visit
+                                  </span>
+                                )}
+                                {stop.travel_distance_km ? (
+                                  <span>• {stop.travel_distance_km.toFixed(1)} km from prev</span>
+                                ) : null}
+                                {stop.route_method && (
+                                  <span
+                                    className="inline-flex items-center cursor-help"
+                                    title="Distance and travel time are estimated using geographic distance and a documented road factor; live traffic is not used."
+                                  >
+                                    • Estimated travel
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Verification badges */}
+                              <div className="flex items-center gap-3 text-[11px] text-ink-700/60 mt-2">
+                                <span>
+                                  {stop.opening_hours_status && stop.opening_hours_status !== "unknown"
+                                    ? `Hours: ${stop.opening_hours_status}`
+                                    : "Opening hours unknown"}
+                                </span>
+                                <span>•</span>
+                                <span>
+                                  {stop.accessibility_status === "yes"
+                                    ? "Accessibility verified"
+                                    : "Accessibility unknown"}
+                                </span>
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        <div className="flex flex-col items-end gap-2 shrink-0">
-                          {typeof stop.estimated_cost === "number" && (
-                            <span className="text-xs text-palm-700 font-bold whitespace-nowrap bg-palm-50 px-2.5 py-1 rounded-lg border border-palm-600/15">
-                              Est. {stop.estimated_cost} SAR
-                            </span>
-                          )}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const match = result.places.find(
-                                (p) => p.name.toLowerCase().trim() === stop.place.toLowerCase().trim()
-                              );
-                              FavoritesService.toggleFavorite({
-                                id: stop.place,
-                                name: stop.place,
-                                city: prefs.city,
-                                category: stop.category,
-                                estimated_cost: stop.estimated_cost,
-                                address: match?.address,
-                                image_url: match?.image_url,
-                                latitude: match?.latitude,
-                                longitude: match?.longitude,
-                                source: match?.source,
-                              });
-                            }}
-                            className="p-1 text-ink-700/40 hover:text-red-500 transition"
-                            title="Bookmark place"
-                            aria-label="Bookmark place"
-                          >
-                            <Heart className={`w-4 h-4 ${isFav ? "text-red-500 fill-red-500" : ""}`} />
-                          </button>
+                          <div className="flex flex-col items-end gap-2 shrink-0">
+                            {typeof stop.estimated_cost === "number" && (
+                              <span className="text-xs text-palm-700 font-bold whitespace-nowrap bg-palm-50 px-2.5 py-1 rounded-lg border border-palm-600/15">
+                                Est. {stop.estimated_cost} SAR
+                              </span>
+                            )}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const match = result.places.find(
+                                  (p) => p.name.toLowerCase().trim() === stop.place.toLowerCase().trim()
+                                );
+                                FavoritesService.toggleFavorite({
+                                  id: stop.place,
+                                  name: stop.place,
+                                  city: prefs.city,
+                                  category: stop.category,
+                                  estimated_cost: stop.estimated_cost,
+                                  address: match?.address,
+                                  image_url: match?.image_url,
+                                  latitude: match?.latitude,
+                                  longitude: match?.longitude,
+                                  source: match?.source,
+                                });
+                              }}
+                              className="p-1 text-ink-700/40 hover:text-red-500 transition"
+                              title="Bookmark place"
+                              aria-label="Bookmark place"
+                            >
+                              <Heart className={`w-4 h-4 ${isFav ? "text-red-500 fill-red-500" : ""}`} />
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    </li>
-                  );
-                }) ?? (
-                  <p className="text-ink-700 font-body">No itinerary stops yet for this day.</p>
-                )}
-              </ol>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
             </div>
 
             {/* Category tabs for recommended places */}

@@ -1428,11 +1428,14 @@ def generate_itinerary(recommendations, budget, days, hours_per_day, city=None,
             break
         weekday = (start_weekday + day - 1) % 7
         day_time = 0.0
+        stops_today = 0
+        day_spent = 0.0
+        cumulative_budget_ceiling = (float(budget) * day) / float(days)
         cursor = center if center is not None else (
             remaining[0]["latitude"], remaining[0]["longitude"]
         )
 
-        while remaining:
+        while remaining and stops_today < EXPECTED_STOPS_PER_DAY:
             feasible = []
             for idx, place in enumerate(remaining):
                 straight_km = _haversine_km(
@@ -1446,9 +1449,11 @@ def generate_itinerary(recommendations, budget, days, hours_per_day, city=None,
                 stop_time = travel_hr + visit_hr
                 stop_cost = float(place["estimated_cost"])
 
-                # Total budget is a hard trip-level constraint. Estimated costs are
-                # disclosed as estimates; they are not used as fake venue-price evidence.
+                # Total budget is a hard trip-level constraint.
                 if total_spent + stop_cost > budget:
+                    continue
+                # Cumulative proportional budget ceiling constraint
+                if total_spent + stop_cost > cumulative_budget_ceiling + 1e-6:
                     continue
                 if day_time + stop_time > hours_per_day:
                     continue
@@ -1475,7 +1480,9 @@ def generate_itinerary(recommendations, budget, days, hours_per_day, city=None,
             stop_time = travel_hr + float(place["total_time_hours"])
             stop_cost = float(place["estimated_cost"])
             day_time += stop_time
+            day_spent += stop_cost
             total_spent += stop_cost
+            stops_today += 1
 
             itinerary.append({
                 "day": day,
