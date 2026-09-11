@@ -99,3 +99,34 @@ def test_trending_cards_clickable_and_opens_verified_details_modal():
     assert "star rating" not in src.lower()
     assert "user reviews" not in src.lower()
 
+
+def test_results_renders_all_requested_day_tabs():
+    src = text("pages/Results.tsx")
+    assert "requestedDays" in src
+    assert "length: requestedDays" in src
+    assert "Day {dayNum}" in src
+
+
+def test_results_empty_day_message():
+    src = text("pages/Results.tsx")
+    assert "No stops could be scheduled for this day under the current budget, time, or evidence constraints." in src
+
+
+def test_results_uses_estimated_travel_label():
+    src = text("pages/Results.tsx")
+    assert "Estimated travel" in src
+    assert "road factor" in src
+
+
+def test_no_raw_haversine_internal_string_in_normal_ui():
+    for rel in ["components/PlaceCard.tsx", "pages/Results.tsx", "components/TrendingPlacesView.tsx", "pages/Favorites.tsx", "components/TripMap.tsx"]:
+        content = text(rel)
+        assert "Haversine_x_road_factor" not in content
+        assert "{stop.route_method}" not in content
+
+
+def test_why_recommended_remains_present():
+    src = text("components/PlaceCard.tsx")
+    assert "Why recommended?" in src
+    assert "Estimated Budget Fit" in src
+    assert "Data Quality" in src
